@@ -16,12 +16,17 @@ connectDB();
 
 const app = express();
 
-// تفعيل CORS للطلبات العادية
-app.use(cors());
+// ✅ تحديث إعدادات CORS لتكون أكثر دقة وقبولاً لـ Vercel
+app.use(cors({
+  origin: '*', // يسمح لجميع المصادر بالوصول (حل مثالي للمبتدئين لضمان العمل)
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+}));
+
 app.use(express.json());
 
-// ✅✅✅ المنطقة الهامة جداً: إعدادات الصور ✅✅✅
-// نستخدم setHeaders لضمان قبول المتصفح للصور حتى مع crossOrigin
+// ✅ إعدادات الصور (ممتازة كما فعلتها مع إضافة بسيطة)
 app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
   setHeaders: function (res, path, stat) {
     res.set("Access-Control-Allow-Origin", "*");
@@ -41,10 +46,7 @@ app.get('/', (req, res) => {
   res.send('API is running correctly...');
 });
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 10000; // Render يفضل 10000
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
-
 });
-  
-   
