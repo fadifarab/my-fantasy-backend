@@ -10,6 +10,7 @@ const leagueRoutes = require('./routes/leagueRoutes');
 const teamRoutes = require('./routes/teamRoutes');
 const gameweekRoutes = require('./routes/gameweekRoutes');
 const fixtureRoutes = require('./routes/fixtureRoutes');
+const startAutomatedUpdates = require('./utils/scheduler');
 
 dotenv.config();
 connectDB();
@@ -49,4 +50,7 @@ app.get('/', (req, res) => {
 const PORT = process.env.PORT || 10000; // Render يفضل 10000
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
+  
+ // ✅ تشغيل التحديث التلقائي كل 5 دقائق بمجرد تشغيل السيرفر
+  startAutomatedUpdates();
 });
