@@ -205,7 +205,7 @@ const importPenaltiesExcel = async (req, res) => {
 
         let updatedCount = 0;
         for (const row of data) {
-            // المتوقع: TeamName, MissedCount
+            // المتوقع من الإكسل: TeamName و MissedCount
             const { TeamName, MissedCount } = row;
             const team = await Team.findOne({ name: TeamName, leagueId });
 
@@ -213,14 +213,23 @@ const importPenaltiesExcel = async (req, res) => {
                 const missed = parseInt(MissedCount) || 0;
                 team.missedDeadlines = missed;
                 
-                // وسم الفريق كمقصى إذا وصل للحد الأقصى (4)
-                if (missed >= 4) team.isDisqualified = true;
+                // 🛠️ الجزء المفقود: تحويل عدد المرات إلى نقاط خصم فعلية لتظهر في الجدول
+                if (missed === 2) {
+                    team.penaltyPoints = 1; // خصم نقطة واحدة
+                } else if (missed === 3) {
+                    team.penaltyPoints = 2; // خصم نقطتين
+                } else if (missed >= 4) {
+                    team.penaltyPoints = 100; // إقصاء
+                    team.isDisqualified = true;
+                } else {
+                    team.penaltyPoints = 0; // لا خصم (تحذير فقط)
+                }
 
                 await team.save();
                 updatedCount++;
             }
         }
-        res.json({ message: `تم تحديث سجل العقوبات لـ ${updatedCount} فريق بنجاح ✅. يرجى "تحديث جدول الترتيب" لتطبيق الخصم.` });
+        res.json({ message: `تم تحديث سجل العقوبات ونقاط الخصم لـ ${updatedCount} فريق بنجاح ✅` });
     } catch (error) {
         console.error("Penalty Import Error:", error);
         res.status(500).json({ message: "خطأ في معالجة ملف العقوبات" });

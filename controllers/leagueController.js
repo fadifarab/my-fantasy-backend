@@ -144,47 +144,38 @@ const getStandings = async (req, res) => {
         const user = await User.findById(req.user.id);
         if (!user.leagueId) return res.status(400).json({ message: 'لست منضماً لدوري' });
 
-        const teams = await Team.find({ leagueId: user.leagueId, isApproved: true });
+        // 1. جلب الفرق مع التأكد من جلب حقل penaltyPoints و stats
+        const teams = await Team.find({ leagueId: user.leagueId, isApproved: true })
+            .select('name logoUrl stats penaltyPoints missedDeadlines isDisqualified');
+
         const teamsArray = [...teams];
 
-        // 🚨 منطق الترتيب الثلاثي (نقاط الدوري -> فارق أهداف/نقاط مجمعة -> مواجهات مباشرة)
-        for (let i = 0; i < teamsArray.length; i++) {
-            for (let j = i + 1; j < teamsArray.length; j++) {
-                let teamA = teamsArray[i];
-                let teamB = teamsArray[j];
-                let swap = false;
-
-                if (teamB.stats.points > teamA.stats.points) {
-                    swap = true;
-                } else if (teamB.stats.points === teamA.stats.points) {
-                    if (teamB.stats.totalFplPoints > teamA.stats.totalFplPoints) {
-                        swap = true;
-                    } else if (teamB.stats.totalFplPoints === teamA.stats.totalFplPoints) {
-                        const h2hFixtures = await Fixture.find({
-                            leagueId: user.leagueId,
-                            isFinished: true,
-                            $or: [
-                                { homeTeamId: teamA._id, awayTeamId: teamB._id },
-                                { homeTeamId: teamB._id, awayTeamId: teamA._id }
-                            ]
-                        });
-                        let pointsA = 0, pointsB = 0;
-                        h2hFixtures.forEach(fix => {
-                            const isAHome = fix.homeTeamId.toString() === teamA._id.toString();
-                            const scoreA = isAHome ? fix.homeScore : fix.awayScore;
-                            const scoreB = isAHome ? fix.awayScore : fix.homeScore;
-                            if (scoreA > scoreB) pointsA += 3;
-                            else if (scoreB > scoreA) pointsB += 3;
-                            else { pointsA += 1; pointsB += 1; }
-                        });
-                        if (pointsB > pointsA) swap = true;
-                    }
-                }
-                if (swap) [teamsArray[i], teamsArray[j]] = [teamsArray[j], teamsArray[i]];
+        // 2. 🚨 منطق الترتيب الخماسي (النقاط النهائية -> البونيس -> نقاط FPL -> المواجهات -> العقوبات)
+        teamsArray.sort((a, b) => {
+            // أ. الترتيب حسب النقاط النهائية (التي تشمل الخصم والبونيس فعلياً في الباك إند)
+            if (b.stats.points !== a.stats.points) {
+                return b.stats.points - a.stats.points;
             }
-        }
+
+            // ب. في حال التساوي: الترتيب حسب إجمالي نقاط الفانتزي (totalFplPoints)
+            if (b.stats.totalFplPoints !== a.stats.totalFplPoints) {
+                return b.stats.totalFplPoints - a.stats.totalFplPoints;
+            }
+
+            // ج. في حال التساوي: الأقل عقوبات يتصدر
+            if (a.penaltyPoints !== b.penaltyPoints) {
+                return a.penaltyPoints - b.penaltyPoints;
+            }
+
+            return 0;
+        });
+
+        // ملاحظة: يمكنك تفعيل منطق المواجهات المباشرة (H2H) هنا إذا أردت تعقيداً أكبر
+        
         res.json(teamsArray);
-    } catch (error) { res.status(500).json({ message: error.message }); }
+    } catch (error) { 
+        res.status(500).json({ message: error.message }); 
+    }
 };
 
 const getGameweekResults = async (req, res) => {
@@ -209,28 +200,65 @@ const getLeagueStats = async (req, res) => {
     try {
         const user = await User.findById(req.user.id);
         if (!user.leagueId) return res.status(400).json({ message: 'لست منضماً لدوري' });
+        
         const leagueId = user.leagueId;
         const league = await League.findById(leagueId);
         const teams = await Team.find({ leagueId, isApproved: true }).populate('managerId', 'username');
+
+        // جلب البيانات من GameweekData (للحساب التلقائي)
         const allGwData = await GameweekData.find({ leagueId });
+        
+        // جلب البيانات من Fixture (للمباريات المستوردة من الإكسل)
+        const allFixtures = await Fixture.find({ leagueId, isFinished: true });
+
         const statsTable = teams.map(team => {
             const teamGwHistory = {};
             let totalNetScore = 0;
+
+            // 1. قراءة النقاط من المواجهات (تشمل المستورد من إكسل)
+            allFixtures.forEach(fix => {
+                const isHome = fix.homeTeamId.toString() === team._id.toString();
+                const isAway = fix.awayTeamId.toString() === team._id.toString();
+                
+                if (isHome || isAway) {
+                    const score = isHome ? fix.homeScore : fix.awayScore;
+                    // نخزن السكور في الجولة المحددة
+                    teamGwHistory[fix.gameweek] = score;
+                }
+            });
+
+            // 2. قراءة النقاط من GameweekData (للتغطية في حال عدم وجود Fixture)
+            // نستخدم هذا كاحتياط أو لتغطية بيانات الانتقالات إذا لزم الأمر
             allGwData.forEach(data => {
                 if (data.teamId.toString() === team._id.toString()) {
                     const score = data.stats.totalPoints || 0;
-                    teamGwHistory[data.gameweek] = score;
-                    totalNetScore += score;
+                    // إذا لم تكن الجولة مسجلة من Fixture، نأخذها من هنا
+                    if (teamGwHistory[data.gameweek] === undefined) {
+                        teamGwHistory[data.gameweek] = score;
+                    }
                 }
             });
+
+            // حساب المجموع الكلي الظاهر في الجدول بناءً على التاريخ المسجل
+            totalNetScore = Object.values(teamGwHistory).reduce((sum, val) => sum + val, 0);
+
             return {
-                teamId: team._id, teamName: team.name, managerName: team.managerId ? team.managerId.username : 'Unknown',
-                logoUrl: team.logoUrl, history: teamGwHistory, totalScore: totalNetScore
+                teamId: team._id,
+                teamName: team.name,
+                managerName: team.managerId ? team.managerId.username : 'Unknown',
+                logoUrl: team.logoUrl,
+                history: teamGwHistory, // هذه هي القيم التي ستملأ الأعمدة GW4 إلى GW18
+                totalScore: totalNetScore
             };
         });
+
+        // ترتيب الجدول حسب إجمالي النقاط
         statsTable.sort((a, b) => b.totalScore - a.totalScore);
+        
         res.json({ currentGw: league.currentGw, stats: statsTable });
-    } catch (error) { res.status(500).json({ message: error.message }); }
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
 };
 
 const getPlayersStats = async (req, res) => {
@@ -330,41 +358,92 @@ const syncPlayerHistory = async (req, res) => {
 
 const getLeagueAwards = async (req, res) => {
     try {
-        const { leagueId, type, range } = req.query; 
-        let gwFilter = {};
-        if (type === 'gameweek') gwFilter = { gameweek: parseInt(range) };
-        else if (type === 'month') {
-            const [start, end] = range.split(',').map(Number);
-            gwFilter = { gameweek: { $gte: start, $lte: end } };
+        const { leagueId, type, range } = req.query;
+        let startGw, endGw;
+
+        if (type === 'gameweek') {
+            startGw = endGw = parseInt(range);
+        } else if (type === 'month') {
+            [startGw, endGw] = range.split(',').map(Number);
+        } else {
+            // للموسم كامل
+            startGw = 1;
+            endGw = 38;
         }
-        const allGwData = await GameweekData.find({ leagueId, ...gwFilter }).populate('teamId', 'name logoUrl managerId').populate({ path: 'teamId', populate: { path: 'managerId', select: 'username' }}).populate('lineup.userId', 'username fplId');
-        
-        const teamScores = {};
-        allGwData.forEach(data => {
-            if(!data.teamId) return;
-            const tId = data.teamId._id.toString();
-            if (!teamScores[tId]) teamScores[tId] = { ...data.teamId.toObject(), totalScore: 0 };
-            teamScores[tId].totalScore += (data.stats.totalPoints || 0);
-        });
-        const sortedTeams = Object.values(teamScores).sort((a, b) => b.totalScore - a.totalScore);
-        
+
+        // 1. حساب "بطل الفريق" بناءً على نتائج المباريات (Fixture) لضمان شمول نتائج الإكسل
+        const teams = await Team.find({ leagueId, isApproved: true }).populate('managerId', 'username');
+        const teamScores = [];
+
+        for (const team of teams) {
+            // جلب كل المواجهات المنتهية لهذا الفريق في النطاق الزمني المحدد
+            const matches = await Fixture.find({
+                leagueId,
+                isFinished: true,
+                gameweek: { $gte: startGw, $lte: endGw },
+                $or: [{ homeTeamId: team._id }, { awayTeamId: team._id }]
+            });
+
+            let totalScoreInRange = 0;
+            matches.forEach(m => {
+                const isHome = m.homeTeamId.toString() === team._id.toString();
+                // نأخذ النقاط التي سجلها الفريق في المباراة (سواء مستوردة أو محسوبة)
+                totalScoreInRange += isHome ? m.homeScore : m.awayScore;
+            });
+
+            teamScores.push({
+                ...team.toObject(),
+                totalScore: totalScoreInRange
+            });
+        }
+
+        // فرز الفرق لاختيار البطل (الأعلى سكور فانتزي في الفترة المحددة)
+        teamScores.sort((a, b) => b.totalScore - a.totalScore);
+        const bestTeam = teamScores[0];
+
+        // 2. حساب "تشكيلة الأحلام" (نفس المنطق العادل: Raw - Hits)
+        const allGwData = await GameweekData.find({ 
+            leagueId, 
+            gameweek: { $gte: startGw, $lte: endGw } 
+        }).populate('teamId', 'name logoUrl').populate('lineup.userId', 'username');
+
         const playerMap = {};
         allGwData.forEach(gw => {
             if (!gw.lineup) return;
             gw.lineup.forEach(p => {
-                if (p.isStarter) {
+                if (p.isStarter && p.userId) {
                     const pId = p.userId._id.toString();
-                    if (!playerMap[pId]) playerMap[pId] = { id: pId, name: p.userId.username, teamName: gw.teamId.name, logoUrl: gw.teamId.logoUrl, score: 0 };
-                    playerMap[pId].score += (p.finalScore || 0);
+                    const netScore = (p.rawPoints || 0) - (p.transferCost || 0);
+                    
+                    if (!playerMap[pId]) {
+                        playerMap[pId] = { 
+                            id: pId, 
+                            name: p.userId.username, 
+                            teamName: gw.teamId?.name || 'Unknown', 
+                            logoUrl: gw.teamId?.logoUrl || null, 
+                            score: 0,
+                            gws: new Set() // لضمان عدم تكرار اللاعب في نفس الجولة
+                        };
+                    }
+                    
+                    // نجمع النقاط مع التأكد من عدم تكرار نفس اللاعب لنفس الجولة
+                    const gwKey = `${pId}-${gw.gameweek}`;
+                    if (!playerMap[pId].gws.has(gwKey)) {
+                        playerMap[pId].score += netScore;
+                        playerMap[pId].gws.add(gwKey);
+                    }
                 }
             });
         });
+
         const sortedPlayers = Object.values(playerMap).sort((a, b) => b.score - a.score);
         const dreamTeam = assignDreamTeamPositions(sortedPlayers);
         const bestPlayer = dreamTeam.length > 0 ? (dreamTeam.find(p => p.isCaptain) || dreamTeam[0]) : null;
 
-        res.json({ bestTeam: sortedTeams[0], bestPlayer, dreamTeam });
-    } catch (error) { res.status(500).json({ message: error.message }); }
+        res.json({ bestTeam, bestPlayer, dreamTeam });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
 };
 
 const getTeamForm = async (req, res) => {

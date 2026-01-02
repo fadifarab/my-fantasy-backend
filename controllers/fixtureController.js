@@ -18,7 +18,64 @@ const normalizeTeamName = (csvName) => {
   return TEAM_NAME_MAPPING[cleanName] || cleanName;
 };
 
-// جلب تفاصيل المباراة (إصلاح الفوضى والنتائج المعكوسة)
+// 🛠️ دالة داخلية لتحديث جدول الترتيب بالكامل (The Standings Engine)
+const updateLeagueStandingsInternal = async (leagueId) => {
+    const teams = await Team.find({ leagueId, isApproved: true });
+    
+    for (const team of teams) {
+        // 1. حساب نقاط المواجهات (3 للفوز، 1 للتعادل)
+        const matches = await Fixture.find({
+            leagueId,
+            isFinished: true,
+            $or: [{ homeTeamId: team._id }, { awayTeamId: team._id }]
+        });
+
+        let fixturePoints = 0;
+        let won = 0, drawn = 0, lost = 0, played = 0, totalFplPoints = 0;
+
+        matches.forEach(m => {
+            played++;
+            const isHome = m.homeTeamId.toString() === team._id.toString();
+            const myScore = isHome ? m.homeScore : m.awayScore;
+            const oppScore = isHome ? m.awayScore : m.homeScore;
+            
+            totalFplPoints += myScore;
+
+            if (myScore > oppScore) { fixturePoints += 3; won++; }
+            else if (myScore === oppScore) { fixturePoints += 1; drawn++; }
+            else { lost++; }
+        });
+
+        // 2. جلب البونيس والعقوبات من الموديل مباشرة كما هي مخزنة
+        const bonus = team.stats.bonusPoints || 0; 
+        const penalties = team.penaltyPoints || 0; // العقوبات المخزنة في الموديل
+
+        // 3. المعادلة النهائية: نقاط الدوري = (نقاط المباريات) + (البونيس) - (العقوبات)
+        const finalPoints = fixturePoints + bonus - penalties;
+
+        // 4. تحديث الفريق بالقيم التراكمية الصحيحة
+        await Team.findByIdAndUpdate(team._id, {
+            $set: {
+                'stats.points': Math.max(0, finalPoints), // المجموع الكلي للدوري
+                'stats.played': played,
+                'stats.won': won,
+                'stats.drawn': drawn,
+                'stats.lost': lost,
+                'stats.totalFplPoints': totalFplPoints // إجمالي نقاط الفانتزي (كسر التعادل)
+            }
+        });
+    }
+
+    // 5. إعادة فرز المراكز بناءً على النقاط النهائية
+    const sortedTeams = await Team.find({ leagueId, isApproved: true });
+    sortedTeams.sort((a, b) => (b.stats.points - a.stats.points) || (b.stats.totalFplPoints - a.stats.totalFplPoints));
+    
+    await Promise.all(sortedTeams.map((team, index) => 
+        Team.findByIdAndUpdate(team._id, { $set: { 'stats.position': index + 1 } })
+    ));
+};
+
+// جلب تفاصيل المباراة
 const getMatchDetails = async (req, res) => {
     try {
         const { fixtureId } = req.params;
@@ -30,7 +87,6 @@ const getMatchDetails = async (req, res) => {
 
         if (!fixture) return res.status(404).json({ message: 'المباراة غير موجودة' });
 
-        // جلب التشكيلات بناءً على معرفات المباراة لضمان عدم الانعكاس
         const homeLineup = await GameweekData.findOne({ 
             teamId: fixture.homeTeamId._id, 
             gameweek: fixture.gameweek 
@@ -47,38 +103,16 @@ const getMatchDetails = async (req, res) => {
     }
 };
 
+// تحديث جدول الترتيب يدوياً
 const updateLeagueTable = async (req, res) => {
   try {
-    // ✅ السماح بالمرور إذا كان الطلب داخلياً من المجدول (لا يوجد headers) أو إذا كان المستخدم أدمن
     const isInternalRequest = !req.headers; 
     if (!isInternalRequest && (!req.user || req.user.role !== 'admin')) {
         return res.status(403).json({ message: 'للأدمن فقط' });
     }
 
     const { leagueId } = req.body;
-    const league = await League.findById(leagueId);
-    if (!league) {
-        if (res) return res.status(404).json({ message: "League not found" });
-        return;
-    }
-
-    const currentGw = league.currentGw;
-    const currentFixtures = await Fixture.find({ leagueId, gameweek: currentGw });
-    
-    for (let match of currentFixtures) {
-        // جلب نقاط الجولة للفريقين
-        const homeData = await GameweekData.findOne({ teamId: match.homeTeamId, gameweek: currentGw });
-        const awayData = await GameweekData.findOne({ teamId: match.awayTeamId, gameweek: currentGw });
-
-        const hPts = (homeData && homeData.stats) ? (homeData.stats.totalPoints || 0) : 0;
-        const aPts = (awayData && awayData.stats) ? (awayData.stats.totalPoints || 0) : 0;
-
-        // تحديث نتيجة المباراة بناءً على نقاط الفانتزي المحسوبة
-        match.homeScore = hPts;
-        match.awayScore = aPts;
-        match.isFinished = true; // نعتبرها منتهية لأن النقاط تُحدث حياً
-        await match.save();
-    }
+    await updateLeagueStandingsInternal(leagueId);
 
     if (res) res.json({ message: "تم تحديث الترتيب والنتائج بنجاح ✅" });
   } catch (error) { 
@@ -87,6 +121,7 @@ const updateLeagueTable = async (req, res) => {
   }
 };
 
+// إنشاء المباريات من ملف CSV
 const generateLeagueFixtures = async (req, res) => {
   try {
     if (req.user.role !== 'admin') return res.status(403).json({ message: 'للأدمن فقط' });
@@ -109,6 +144,45 @@ const generateLeagueFixtures = async (req, res) => {
     }
     res.json({ message: "تم إنشاء المباريات ✅" });
   } catch (error) { res.status(500).json({ message: error.message }); }
+};
+
+// استيراد النتائج من إكسل (المعدلة لتحديث الجدول فوراً)
+const importResultsFromExcel = async (req, res) => {
+    try {
+        if (req.user.role !== 'admin') return res.status(403).json({ message: 'للأدمن فقط' });
+        const { leagueId } = req.body;
+        const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+        const data = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+        
+        for (const row of data) {
+            const h = await Team.findOne({ name: normalizeTeamName(row.Home), leagueId });
+            const a = await Team.findOne({ name: normalizeTeamName(row.Away), leagueId });
+            if (h && a) {
+                await Fixture.findOneAndUpdate(
+                    { leagueId, gameweek: row.GW, homeTeamId: h._id, awayTeamId: a._id },
+                    { homeScore: row.HomeScore, awayScore: row.AwayScore, isFinished: true },
+                    { upsert: true }
+                );
+                
+                // ملء GameweekData لضمان ظهور النقاط في التشكيلة
+                await GameweekData.findOneAndUpdate(
+                    { teamId: h._id, gameweek: row.GW },
+                    { 'stats.totalPoints': row.HomeScore, 'stats.isProcessed': true, leagueId },
+                    { upsert: true }
+                );
+                await GameweekData.findOneAndUpdate(
+                    { teamId: a._id, gameweek: row.GW },
+                    { 'stats.totalPoints': row.AwayScore, 'stats.isProcessed': true, leagueId },
+                    { upsert: true }
+                );
+            }
+        }
+
+        // 🚩 استدعاء المحرك لتحديث الترتيب بناءً على البيانات المستوردة
+        await updateLeagueStandingsInternal(leagueId);
+        
+        res.json({ message: "تم الاستيراد وتحديث الجدول بنجاح ✅" });
+    } catch (error) { res.status(500).json({ message: error.message }); }
 };
 
 const getFixturesByGameweek = async (req, res) => {
@@ -136,25 +210,11 @@ const getNextOpponent = async (req, res) => {
     } catch (error) { res.status(500).json({ message: error.message }); }
 };
 
-const importResultsFromExcel = async (req, res) => {
-    try {
-        if (req.user.role !== 'admin') return res.status(403).json({ message: 'للأدمن فقط' });
-        const { leagueId } = req.body;
-        const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
-        const data = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
-        for (const row of data) {
-            const h = await Team.findOne({ name: normalizeTeamName(row.Home), leagueId });
-            const a = await Team.findOne({ name: normalizeTeamName(row.Away), leagueId });
-            if (h && a) {
-                await Fixture.findOneAndUpdate(
-                    { leagueId, gameweek: row.GW, homeTeamId: h._id, awayTeamId: a._id },
-                    { homeScore: row.HomeScore, awayScore: row.AwayScore, isFinished: true },
-                    { upsert: true }
-                );
-            }
-        }
-        res.json({ message: "تم الاستيراد بنجاح ✅" });
-    } catch (error) { res.status(500).json({ message: error.message }); }
+module.exports = { 
+  generateLeagueFixtures, 
+  updateLeagueTable, 
+  getFixturesByGameweek, 
+  getMatchDetails, 
+  getNextOpponent, 
+  importResultsFromExcel 
 };
-
-module.exports = { generateLeagueFixtures, updateLeagueTable, getFixturesByGameweek, getMatchDetails, getNextOpponent, importResultsFromExcel };

@@ -3,10 +3,11 @@ const Team = require('../models/Team');
 const League = require('../models/League');
 const Gameweek = require('../models/Gameweek'); 
 const User = require('../models/User'); 
+const Fixture = require('../models/Fixture'); 
 const { getUserFPLPoints, getCurrentGameweekStatus } = require('../services/fplService');
 const axios = require('axios');
 
-// 1. مزامنة المواعيد
+// 1. مزامنة المواعيد من سيرفر الفانتزي الرسمي
 const syncGameweeks = async (req, res) => {
     try {
         const fplResponse = await axios.get('https://fantasy.premierleague.com/api/bootstrap-static/');
@@ -26,7 +27,7 @@ const syncGameweeks = async (req, res) => {
     } catch (error) { res.status(500).json({ message: error.message }); }
 };
 
-// 2. دالة حفظ التشكيلة
+// 2. دالة حفظ التشكيلة اليدوية للمناجير
 const setLineup = async (req, res) => {
     try {
         const { players, activeChip, gw } = req.body; 
@@ -34,23 +35,19 @@ const setLineup = async (req, res) => {
         if (!team) return res.status(404).json({ message: 'الفريق غير موجود' });
 
         const league = await League.findById(team.leagueId);
-
-        // 🔒 القفل الحديدي: تحديد الجولة القادمة فقط كهدف وحيد مسموح به
         const nextGw = league.currentGw + 1;
-        
-        // التحقق مما إذا كان المستخدم يحاول تعديل جولة غير القادمة
+
         if (parseInt(gw) !== nextGw) {
             return res.status(403).json({ 
                 message: `⛔ غير مسموح! يمكنك فقط تعديل تشكيلة الجولة القادمة (${nextGw})` 
             });
         }
-		
-		if (activeChip && activeChip !== 'none') {
+
+        if (activeChip && activeChip !== 'none') {
             const isFirstHalf = nextGw <= 19;
             const startRange = isFirstHalf ? 1 : 20;
             const endRange = isFirstHalf ? 19 : 38;
 
-            // البحث عن أي استخدام سابق لهذه الخاصية في نفس المرحلة
             const usedInPhase = await GameweekData.findOne({
                 teamId: team._id,
                 activeChip: activeChip,
@@ -68,7 +65,6 @@ const setLineup = async (req, res) => {
         const startersCount = players.filter(p => p.isStarter === true).length;
         if (startersCount !== 3) return res.status(400).json({ message: `⛔ اختيار 3 أساسيين فقط` });
 
-        // التحقق من الديدلاين للجولة القادمة
         const localGw = await Gameweek.findOne({ number: nextGw });
         if (localGw && new Date() > new Date(localGw.deadline_time)) {
             return res.status(400).json({ message: `⛔ انتهى وقت التعديل لجولة ${nextGw}` });
@@ -83,7 +79,6 @@ const setLineup = async (req, res) => {
             finalScore: 0
         }));
 
-        // استخدام nextGw بدلاً من targetGw لضمان الكتابة في المكان الصحيح
         await GameweekData.findOneAndUpdate(
             { teamId: team._id, gameweek: nextGw },
             { 
@@ -95,15 +90,14 @@ const setLineup = async (req, res) => {
             { upsert: true, new: true }
         );
 
-        team.missedDeadlines = 0;
-        await team.save();
+        await Team.findByIdAndUpdate(team._id, { $set: { missedDeadlines: 0 } });
         res.json({ message: `تم حفظ تشكيلة الجولة ${nextGw} بنجاح ✅` });
     } catch (error) { 
         res.status(500).json({ message: 'خطأ في حفظ التشكيلة' }); 
     }
 };
 
-// 3. جلب التشكيلة (منطق النزاهة: حتى المدير لا يرى التشكيلات قبل الديدلاين 🔒)
+// 3. جلب بيانات التشكيلة لعرضها
 const getTeamGwData = async (req, res) => {
     try {
         const { teamId, gw } = req.params;
@@ -111,18 +105,14 @@ const getTeamGwData = async (req, res) => {
         const localGw = await Gameweek.findOne({ number: requestedGw });
         const now = new Date();
 
-        // جلب فريق المستخدم الحالي للتأكد من الملكية
         const myTeam = await Team.findOne({ managerId: req.user.id });
         const isOwner = myTeam && myTeam._id.toString() === teamId;
-        
-        // التحقق من مرور الديدلاين
         const deadlinePassed = localGw && now > new Date(localGw.deadline_time);
 
-        // القفل: إذا لم يكن صاحب الفريق ولم يمر الديدلاين -> ممنوع (حتى للآدمن)
         if (!isOwner && !deadlinePassed) {
             return res.status(403).json({ 
                 restricted: true, 
-                message: '🔒 التشكيلة سرية للجميع (بمن فيهم الإدارة) حتى مرور وقت الديدلاين' 
+                message: '🔒 التشكيلة سرية للجميع حتى مرور وقت الديدلاين' 
             });
         }
 
@@ -138,7 +128,7 @@ const getTeamGwData = async (req, res) => {
     } catch (error) { res.status(500).json({ message: error.message }); }
 };
 
-// 4. جلب حالة الجولة
+// 4. جلب حالة الجولة الحالية والقادمة
 const getGwStatus = async (req, res) => {
     try {
         const now = new Date();
@@ -154,210 +144,216 @@ const getGwStatus = async (req, res) => {
     } catch (error) { res.status(500).json({ message: error.message }); }
 };
 
-// 5. الحساب الكامل (بكل الخواص)
+// 🛠 5. المحرك الداخلي لتحديث الترتيب التراكمي (The Engine)
+const updateLeagueStandingsInternal = async (leagueId) => {
+    const teams = await Team.find({ leagueId, isApproved: true });
+    
+    for (const team of teams) {
+        // حساب نقاط المباريات من واقع المواجهات المنتهية
+        const matches = await Fixture.find({
+            leagueId,
+            isFinished: true,
+            $or: [{ homeTeamId: team._id }, { awayTeamId: team._id }]
+        });
+
+        let fixturePoints = 0;
+        let won = 0, drawn = 0, lost = 0, played = 0, totalFpl = 0;
+
+        matches.forEach(m => {
+            played++;
+            const isHome = m.homeTeamId.toString() === team._id.toString();
+            const myScore = isHome ? m.homeScore : m.awayScore;
+            const oppScore = isHome ? m.awayScore : m.homeScore;
+            
+            totalFpl += myScore;
+
+            if (myScore > oppScore) { fixturePoints += 3; won++; }
+            else if (myScore === oppScore) { fixturePoints += 1; drawn++; }
+            else { lost++; }
+        });
+
+        // 🎖️ إضافة نقاط البونيس وخصم العقوبات المخزنة في الموديل
+        const bonus = team.stats.bonusPoints || 0;
+        const penalties = team.penaltyPoints || 0;
+        
+        // المعادلة الشاملة للمجموع الكلي بجدول الترتيب
+        const finalLeaguePoints = fixturePoints + bonus - penalties;
+
+        await Team.findByIdAndUpdate(team._id, {
+            $set: {
+                'stats.points': Math.max(0, finalLeaguePoints),
+                'stats.totalFplPoints': totalFpl, // لكسر التعادل
+                'stats.won': won,
+                'stats.drawn': drawn,
+                'stats.lost': lost,
+                'stats.played': played
+            }
+        });
+    }
+
+    // فرز المراكز (نقاط الدوري أولاً ثم نقاط الفانتزي)
+    const sortedTeams = await Team.find({ leagueId, isApproved: true });
+    sortedTeams.sort((a, b) => (b.stats.points - a.stats.points) || (b.stats.totalFplPoints - a.stats.totalFplPoints));
+    
+    const updatePromises = sortedTeams.map((team, index) => 
+        Team.findByIdAndUpdate(team._id, { $set: { 'stats.position': index + 1 } })
+    );
+    await Promise.all(updatePromises);
+};
+
+// 6. الحساب الكامل للجولة (توزيع النقاط، المواجهات، والبونيس)
+const calculateScoresInternal = async (leagueId) => {
+    const league = await League.findById(leagueId);
+    if (!league) throw new Error("League not found");
+
+    await League.findByIdAndUpdate(leagueId, { autoUpdateStatus: 'running' });
+
+    const currentGw = league.currentGw; 
+    const allTeams = await Team.find({ leagueId, isApproved: true });
+    
+    const allUserIds = new Set();
+    for (const team of allTeams) {
+        const gwData = await GameweekData.findOne({ teamId: team._id, gameweek: currentGw });
+        if (gwData?.lineup) gwData.lineup.forEach(s => s.userId && allUserIds.add(s.userId.toString()));
+    }
+
+    const users = await User.find({ _id: { $in: Array.from(allUserIds) } });
+    const fplResults = await Promise.all(users.map(u => 
+        getUserFPLPoints(u.fplId, currentGw).then(d => ({ userId: u._id.toString(), data: d }))
+        .catch(() => ({ userId: u._id.toString(), data: { gwPoints: 0, eventTransfersCost: 0 } }))
+    ));
+    const fplDataMap = new Map(fplResults.map(r => [r.userId, r.data]));
+
+    for (const team of allTeams) {
+        if (team.isDisqualified) continue;
+        let gwData = await GameweekData.findOne({ teamId: team._id, gameweek: currentGw });
+        let isInherited = false;
+        let pointsDeduction = 0;
+
+        if (!gwData) {
+            isInherited = true;
+            const newMissed = (team.missedDeadlines || 0) + 1;
+            if (newMissed === 2) pointsDeduction = 1;
+            else if (newMissed === 3) pointsDeduction = 2;
+            
+            await Team.findByIdAndUpdate(team._id, { 
+                $set: { missedDeadlines: newMissed, isDisqualified: newMissed >= 4 } 
+            });
+
+            const last = await GameweekData.findOne({ teamId: team._id, gameweek: { $lt: currentGw } }).sort({ gameweek: -1 });
+            gwData = await GameweekData.create({
+                teamId: team._id, leagueId, gameweek: currentGw, 
+                lineup: last ? last.lineup.map(p => ({...p.toObject(), rawPoints:0, finalScore:0})) : [], 
+                activeChip: 'none', stats: { totalPoints: 0, isProcessed: false }
+            });
+        }
+
+        let roundTotal = 0;
+        let playersDetailed = gwData.lineup.map(slot => {
+            const fpl = fplDataMap.get(slot.userId.toString()) || { gwPoints: 0, eventTransfersCost: 0 };
+            return { userId: slot.userId.toString(), raw: fpl.gwPoints, hits: fpl.eventTransfersCost, net: fpl.gwPoints - fpl.eventTransfersCost, slot };
+        });
+
+        // تطبيق Chips (theBest, tripleCaptain, freeHit, benchBoost)
+        const chip = gwData.activeChip;
+        if (!isInherited && chip === 'theBest') {
+            const starters = playersDetailed.filter(p => p.slot.isStarter);
+            if (starters.length > 0) {
+                const best = starters.sort((a, b) => b.net - a.net)[0];
+                gwData.lineup.forEach(s => s.isCaptain = (s.userId.toString() === best.userId));
+            }
+        }
+
+        gwData.lineup.forEach((slot) => {
+            const p = playersDetailed.find(pd => pd.userId === slot.userId.toString());
+            if (p) {
+                let mult = slot.isCaptain ? (chip === 'tripleCaptain' ? 3 : 2) : 1;
+                const final = p.net * mult;
+                slot.rawPoints = p.raw; slot.transferCost = p.hits; slot.finalScore = final;
+                if (slot.isStarter || chip === 'benchBoost') roundTotal += final;
+            }
+        });
+
+        gwData.stats.totalPoints = Math.max(0, roundTotal - pointsDeduction);
+        gwData.stats.isProcessed = true;
+        gwData.markModified('lineup');
+        await gwData.save();
+    }
+
+    // تحديث نتائج المباريات
+    const fixtures = await Fixture.find({ leagueId, gameweek: currentGw, isFinished: false });
+    for (const fixture of fixtures) {
+        const homeData = await GameweekData.findOne({ teamId: fixture.homeTeamId, gameweek: currentGw });
+        const awayData = await GameweekData.findOne({ teamId: fixture.awayTeamId, gameweek: currentGw });
+        if (homeData && awayData) {
+            fixture.homeScore = homeData.stats.totalPoints;
+            fixture.awayScore = awayData.stats.totalPoints;
+            fixture.isFinished = true;
+            await fixture.save();
+        }
+    }
+
+    // 🏆🎖️ منطق توزيع البونيس (النقطة الذهبية) آلياً للفائز بالجولة
+    const allGwData = await GameweekData.find({ leagueId, gameweek: currentGw });
+
+if (allGwData.length > 0) {
+    // التحقق مما إذا كانت هذه الجولة قد حصلت على البونيس مسبقاً لمنع التكرار
+    const isAlreadyAwarded = league.bonusProcessedGws && league.bonusProcessedGws.includes(currentGw);
+
+    if (!isAlreadyAwarded) {
+        allGwData.sort((a, b) => b.stats.totalPoints - a.stats.totalPoints);
+        const topScore = allGwData[0].stats.totalPoints;
+        const winners = allGwData.filter(d => d.stats.totalPoints === topScore);
+        
+        for (let winner of winners) {
+            // إضافة النقطة فقط إذا لم تكن الجولة قد عولجت
+            await Team.findByIdAndUpdate(winner.teamId, { $inc: { 'stats.bonusPoints': 1 } });
+        }
+
+        // تسجيل الجولة في قائمة الجولات التي حصلت على بونيس في موديل League
+        await League.findByIdAndUpdate(leagueId, { 
+            $addToSet: { bonusProcessedGws: currentGw } 
+        });
+        console.log(`✅ تم منح بونيس الجولة ${currentGw} بنجاح.`);
+    } else {
+        console.log(`⚠️ بونيس الجولة ${currentGw} تم منحه مسبقاً، لن يتم التكرار.`);
+    }
+}
+
+    // تشغيل المحرك لتحديث الترتيب النهائي
+    await updateLeagueStandingsInternal(leagueId);
+
+    await League.findByIdAndUpdate(leagueId, { 
+        $set: { autoUpdateStatus: 'success', lastAutoUpdate: new Date() } 
+    });
+
+    return { success: true, message: "✅ اكتمل الحساب وتم توزيع البونيس وتحديث الترتيب" };
+};
+
+// الدالة الخارجية للاستدعاء من الأدمن
 const calculateScores = async (req, res) => {
     try {
-        // ✅ السماح بالدخول إذا كان استدعاء داخلي من السيرفر أو إذا كان المستخدم أدمن
-        const isInternalRequest = !req.headers; 
-        if (!isInternalRequest && req.user.role !== 'admin') {
-            return res.status(403).json({ message: 'للأدمن فقط' });
-        }
-
-        const { leagueId } = req.body;
-        const league = await League.findById(leagueId);
-        if (!league) {
-            if (res) return res.status(404).json({ message: "League not found" });
-            return;
-        }
-
-        // ✅ تحديث حالة الدوري إلى "جاري العمل" للمراقبة
-        league.autoUpdateStatus = 'running';
-        await league.save();
-
-        const currentGw = league.currentGw; 
-        const allTeams = await Team.find({ leagueId, isApproved: true });
-        
-        const roundResults = [];
-        const allUserIds = new Set();
-        
-        for (const team of allTeams) {
-            const gwData = await GameweekData.findOne({ teamId: team._id, gameweek: currentGw });
-            if (gwData?.lineup) gwData.lineup.forEach(s => s.userId && allUserIds.add(s.userId.toString()));
-        }
-
-        const users = await User.find({ _id: { $in: Array.from(allUserIds) } });
-        const fplResults = await Promise.all(users.map(u => 
-            getUserFPLPoints(u.fplId, currentGw).then(d => ({ userId: u._id.toString(), data: d }))
-            .catch(() => ({ userId: u._id.toString(), data: { gwPoints: 0, eventTransfersCost: 0 } }))
-        ));
-        const fplDataMap = new Map(fplResults.map(r => [r.userId, r.data]));
-
-        for (const team of allTeams) {
-            if (team.isDisqualified) continue;
-            let gwData = await GameweekData.findOne({ teamId: team._id, gameweek: currentGw });
-            let isInherited = false;
-            let pointsDeduction = 0;
-
-            if (!gwData) {
-                isInherited = true;
-                team.missedDeadlines = (team.missedDeadlines || 0) + 1;
-                if (team.missedDeadlines === 2) pointsDeduction = 1;
-                else if (team.missedDeadlines === 3) pointsDeduction = 2;
-                else if (team.missedDeadlines >= 4) team.isDisqualified = true;
-                
-                // خصم نقاط من الإجمالي
-                team.stats.totalPoints -= pointsDeduction;
-
-                const last = await GameweekData.findOne({ teamId: team._id, gameweek: { $lt: currentGw } }).sort({ gameweek: -1 });
-                gwData = await GameweekData.create({
-                    teamId: team._id, leagueId, gameweek: currentGw, 
-                    lineup: last ? last.lineup.map(p => ({...p.toObject(), rawPoints:0, finalScore:0})) : [], 
-                    activeChip: 'none',
-                    stats: { totalPoints: 0, isProcessed: false }
-                });
-            }
-
-            let roundTotal = 0;
-            let playersDetailed = gwData.lineup.map(slot => {
-                const fpl = fplDataMap.get(slot.userId.toString()) || { gwPoints: 0, eventTransfersCost: 0 };
-                return { userId: slot.userId.toString(), raw: fpl.gwPoints, hits: fpl.eventTransfersCost, net: fpl.gwPoints - fpl.eventTransfersCost, slot };
-            });
-
-            // منطق التوريث (Inheritance) - اختيار أسوأ لاعب ككابتن وأفضل لاعب كدكة
-            if (isInherited && playersDetailed.length > 0) {
-                const sorted = [...playersDetailed].sort((a, b) => a.net - b.net);
-                gwData.lineup.forEach(s => {
-                    s.isCaptain = (s.userId.toString() === sorted[0].userId);
-                    s.isStarter = (s.userId.toString() !== sorted[sorted.length - 1].userId);
-                });
-            }
-
-            const chip = gwData.activeChip;
-
-            // تطبيق خاصية The Best
-            if (!isInherited && chip === 'theBest') {
-                const starters = playersDetailed.filter(p => p.slot.isStarter);
-                if (starters.length > 0) {
-                    const best = starters.sort((a, b) => b.net - a.net)[0];
-                    gwData.lineup.forEach(s => s.isCaptain = (s.userId.toString() === best.userId));
-                }
-            }
-
-            // تطبيق خاصية Free Hit (تبديل أوتوماتيكي لأفضل دكة بأسوأ أساسي)
-            if (!isInherited && chip === 'freeHit') {
-                const startersNonCap = playersDetailed.filter(p => p.slot.isStarter && !p.slot.isCaptain);
-                const bench = playersDetailed.find(p => !p.slot.isStarter);
-                if (startersNonCap.length > 0 && bench) {
-                    const worst = startersNonCap.sort((a, b) => a.net - b.net)[0];
-                    if (bench.net > worst.net) {
-                        gwData.lineup.forEach(s => {
-                            if (s.userId.toString() === worst.userId) s.isStarter = false;
-                            if (s.userId.toString() === bench.userId) s.isStarter = true;
-                        });
-                    }
-                }
-            }
-
-            // الحساب النهائي للنقاط
-            gwData.lineup.forEach((slot) => {
-                const p = playersDetailed.find(pd => pd.userId === slot.userId.toString());
-                if (p) {
-                    let mult = slot.isCaptain ? (chip === 'tripleCaptain' ? 3 : 2) : 1;
-                    const final = p.net * mult;
-                    slot.rawPoints = p.raw;
-                    slot.transferCost = p.hits;
-                    slot.finalScore = final;
-                    if (slot.isStarter || chip === 'benchBoost') roundTotal += final;
-                }
-            });
-
-            gwData.stats.totalPoints = Math.max(0, roundTotal - pointsDeduction);
-            gwData.stats.isProcessed = true;
-            gwData.markModified('lineup');
-            await gwData.save();
-
-            // تحديث إجمالي نقاط الفريق في الدوري
-            // ملاحظة: يجب تصفير totalPoints في بداية الجولة أو التعامل مع التحديث التراكمي بحذر
-            // هنا سنفترض أننا نحدث الجولة الحالية فقط، لذا يفضل إعادة حساب الإجمالي من كل الجولات لضمان الدقة
-            const allGws = await GameweekData.find({ teamId: team._id });
-            team.stats.totalPoints = allGws.reduce((acc, curr) => acc + (curr.stats.totalPoints || 0), 0);
-            team.stats.gamesPlayed = allGws.length;
-            await team.save();
-
-            roundResults.push({ teamId: team._id, points: gwData.stats.totalPoints });
-        }
-
-        // توزيع نقاط الـ Bonus (نقطة واحدة لمتصدر الجولة)
-        if (roundResults.length > 0) {
-            const max = Math.max(...roundResults.map(r => r.points));
-            const winners = roundResults.filter(r => r.points === max);
-            
-            // تسجيل بطل الجولة في موديل الدوري
-            if (winners.length > 0) {
-                 const firstWinner = await Team.findById(winners[0].teamId);
-                 league.lastGwWinner = {
-                    teamId: firstWinner._id,
-                    teamName: firstWinner.name,
-                    points: max,
-                    gameweek: currentGw
-                 };
-            }
-
-            if (winners.length === 1) {
-                const t = await Team.findById(winners[0].teamId);
-                // منع تكرار إضافة البونص لنفس الجولة
-                // (تحتاج لإضافة منطق لمنع تكرار البونص إذا اشتغلت الدالة كل 5 دقائق)
-                // مثال: التحقق مما إذا كان قد حصل على بونص لهذه الجولة مسبقاً
-            }
-        }
-
-        await updateLeagueStandings(leagueId);
-
-        // ✅ تحديث حالة المراقبة إلى نجاح
-        league.autoUpdateStatus = 'success';
-        league.lastAutoUpdate = new Date();
-        await league.save();
-
-        if (res) res.json({ message: "✅ تم الحساب بنجاح" });
-
-    } catch (error) { 
-        console.error("CRON ERROR:", error.message);
-        // تسجيل الفشل في المراقبة
-        try {
-            const { leagueId } = req.body;
-            await League.findByIdAndUpdate(leagueId, { autoUpdateStatus: 'failed' });
-        } catch (e) {}
-        
-        if (res) res.status(500).json({ message: error.message }); 
-    }
+        if (req.user.role !== 'admin') return res.status(403).json({ message: 'للأدمن فقط' });
+        const result = await calculateScoresInternal(req.body.leagueId);
+        res.json(result);
+    } catch (error) { res.status(500).json({ message: error.message }); }
 };
-const updateLeagueStandings = async (leagueId) => {
+
+// تصفير الدوري
+const resetLeagueStandings = async (req, res) => {
     try {
-        // جلب جميع الفرق المنضمة والمعتمدة في الدوري
-        const teams = await Team.find({ leagueId, isApproved: true });
-
-        // ترتيب الفرق بناءً على:
-        // 1. النقاط (points) - وهي النقاط التي تُمنح للفائز بالجولة أو عبر البونص
-        // 2. إجمالي نقاط الجولات (totalPoints) - في حال التعادل في النقاط
-        teams.sort((a, b) => {
-            if (b.stats.points !== a.stats.points) {
-                return b.stats.points - a.stats.points;
-            }
-            return b.stats.totalPoints - a.stats.totalPoints;
+        if (req.user.role !== 'admin') return res.status(403).json({ message: 'للأدمن فقط' });
+        const { leagueId } = req.body;
+        await Team.updateMany({ leagueId }, { 
+            $set: { 
+                'stats.points': 0, 'stats.totalFplPoints': 0, 'stats.won': 0, 'stats.bonusPoints': 0,
+                'stats.played': 0, 'stats.position': 0, 'penaltyPoints': 0, 'missedDeadlines': 0 
+            } 
         });
-
-        // تحديث مركز كل فريق في قاعدة البيانات
-        const updatePromises = teams.map((team, index) => {
-            team.stats.position = index + 1;
-            // تسجيل إذا كان هناك صعود أو هبوط في المراكز (اختياري)
-            return team.save();
-        });
-
-        await Promise.all(updatePromises);
-        console.log(`🏆 تم تحديث جدول الترتيب للدوري: ${leagueId}`);
-    } catch (error) {
-        console.error('❌ خطأ في تحديث الترتيب:', error.message);
-    }
+        await Fixture.updateMany({ leagueId }, { $set: { isFinished: false, homeScore: 0, awayScore: 0, winnerId: null } });
+        await GameweekData.updateMany({ leagueId }, { $set: { 'stats.totalPoints': 0, 'stats.isProcessed': false } });
+        res.json({ message: "🔄 تم تصفير الدوري بنجاح" });
+    } catch (error) { res.status(500).json({ message: error.message }); }
 };
 
 const startNewGameweek = async (req, res) => {
@@ -370,4 +366,8 @@ const startNewGameweek = async (req, res) => {
     } catch (error) { res.status(500).json({ message: error.message }); }
 };
 
-module.exports = { setLineup, calculateScores, getGwStatus, getTeamGwData, syncGameweeks, startNewGameweek };
+module.exports = { 
+    setLineup, calculateScores, calculateScoresInternal, getGwStatus, 
+    getTeamGwData, syncGameweeks, startNewGameweek, resetLeagueStandings,
+    updateLeagueStandingsInternal 
+};

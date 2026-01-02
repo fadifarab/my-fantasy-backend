@@ -8,7 +8,6 @@ const leagueSchema = new mongoose.Schema({
   isActive: { type: Boolean, default: true },
   logoUrl: { type: String, default: '' },
 
-  // 🏆 حقل بطل الجولة الأخيرة (ممتاز كما أضفته)
   lastGwWinner: {
     teamId: { type: mongoose.Schema.Types.ObjectId, ref: 'Team' },
     teamName: { type: String },
@@ -16,11 +15,13 @@ const leagueSchema = new mongoose.Schema({
     gameweek: { type: Number }
   },
 
-  // ✅ الحقول الجديدة الضرورية للمزامنة التلقائية كل 5 دقائق
-  lastAutoUpdate: { 
-    type: Date, 
-    default: null 
+  // 🛡️ الحقل الجديد لمنع تكرار البونيس
+  bonusProcessedGws: {
+    type: [Number],
+    default: []
   },
+
+  lastAutoUpdate: { type: Date, default: null },
   autoUpdateStatus: { 
     type: String, 
     enum: ['success', 'failed', 'running', 'idle'], 
