@@ -120,6 +120,7 @@ const selectTeam = async (req, res) => {
 };
 
 // @desc    جلب بيانات فريق المستخدم الحالي (مع الوراثة والتشكيلات)
+// في teamController.js - تحديث دالة getMyTeam فقط
 const getMyTeam = async (req, res) => {
     try {
         const { gw } = req.query; 
@@ -129,10 +130,11 @@ const getMyTeam = async (req, res) => {
             return res.status(404).json({ message: 'لم تنضم لفريق بعد' });
         }
 
+        // إضافة populate لـ pendingMembers هنا ⬇️
         const team = await Team.findById(user.teamId)
-            .populate('managerId', 'username') 
-            .populate('members', 'username fplId role') 
-            .populate('pendingMembers', 'username fplId'); 
+            .populate('managerId', 'username _id') 
+            .populate('members', 'username fplId role _id') 
+            .populate('pendingMembers', 'username fplId role _id email'); // ⬅️ مهم جداً
 
         if (!team) {
             return res.status(404).json({ message: 'تعذر العثور على بيانات الفريق' });
@@ -155,12 +157,19 @@ const getMyTeam = async (req, res) => {
 
         const gwInfo = await Gameweek.findOne({ number: gw });
 
+        // إرجاع البيانات مع pendingMembers
         res.json({
             ...team._doc,
             deadline_time: gwInfo ? gwInfo.deadline_time : null,
-            lineup: savedGwData ? savedGwData.lineup : team.members, 
+            lineup: savedGwData ? savedGwData.lineup : team.members.map(member => ({
+                userId: member,
+                isStarter: false,
+                isCaptain: false
+            })), 
             activeChip: savedGwData ? savedGwData.activeChip : 'none',
-            isInherited: isInherited
+            isInherited: isInherited,
+            // ⬇️ التأكد من إرجاع pendingMembers
+            pendingMembers: team.pendingMembers || []
         });
     } catch (error) {
         console.error("GetMyTeam Error:", error.message);
@@ -286,55 +295,164 @@ const joinTeamRequest = async (req, res) => {
 };
 
 // @desc    جلب طلبات اللاعبين المعلقة لفريق معين (للمناجير)
+// في teamController.js - التأكد من دالة getPendingPlayers
 const getPendingPlayers = async (req, res) => {
     try {
         const { teamId } = req.params;
-        // البحث عن الفريق والتأكد من جلب بيانات المستخدمين المعلقين
-        const team = await Team.findById(teamId).populate('pendingMembers', 'username fplId');
+        
+        // البحث عن الفريق مع populate صحيح
+        const team = await Team.findById(teamId)
+            .populate('pendingMembers', 'username fplId email profileImage role _id');
         
         if (!team) {
             return res.status(404).json({ message: 'تعذر العثور على الفريق' });
         }
         
-        res.json(team.pendingMembers || []);
+        // إرجاع البيانات بشكل واضح
+        res.json({
+            success: true,
+            teamName: team.name,
+            pendingPlayers: team.pendingMembers || [],
+            count: team.pendingMembers ? team.pendingMembers.length : 0
+        });
     } catch (error) {
         console.error("Error fetching pending players:", error);
-        res.status(500).json({ message: error.message });
+        res.status(500).json({ 
+            success: false,
+            message: "حدث خطأ في جلب طلبات الانضمام",
+            error: error.message 
+        });
     }
 };
 
-// @desc    قبول لاعب في الفريق (الحل النهائي لمشكلة الزر)
-const approvePlayer = async (req, res) => {
+// في teamController.js - إضافة هذه الدالة إذا لزم الأمر
+const rejectPlayer = async (req, res) => {
     try {
         const { playerId, teamId } = req.body;
         
-        // التحقق من وجود الفريق
         const team = await Team.findById(teamId);
         if (!team) {
             return res.status(404).json({ message: 'الفريق غير موجود' });
         }
-
-        // التحقق من المساحة المتوفرة
-        if (team.members.length >= 4) {
-            return res.status(400).json({ message: 'عذراً، الفريق مكتمل (4 لاعبين كحد أقصى)' });
-        }
-
-        // 1. تحديث وثيقة الفريق (حذف من الانتظار وإضافة للأعضاء)
+        
+        // إزالة اللاعب من pendingMembers فقط
         await Team.findByIdAndUpdate(teamId, {
-            $pull: { pendingMembers: playerId },
-            $addToSet: { members: playerId }
+            $pull: { pendingMembers: playerId }
         });
-
-        // 2. تحديث وثيقة المستخدم (ربطه بالفريق)
-        await User.findByIdAndUpdate(playerId, { 
-            teamId: teamId,
-            isApproved: true // اعتماد اللاعب
+        
+        res.json({ 
+            success: true,
+            message: 'تم رفض طلب الانضمام بنجاح'
         });
-
-        res.json({ message: 'تم قبول اللاعب بنجاح ✅ سيظهر الآن في قائمة الفريق' });
     } catch (error) {
-        console.error("Error in approvePlayer:", error);
-        res.status(500).json({ message: "حدث خطأ أثناء قبول اللاعب" });
+        console.error("Reject player error:", error);
+        res.status(500).json({ 
+            success: false,
+            message: "حدث خطأ أثناء رفض اللاعب",
+            error: error.message 
+        });
+    }
+};
+
+// @desc    قبول لاعب في الفريق (الحل النهائي لمشكلة الزر)
+// في teamController.js - تحديث دالة approvePlayer لتكون دائماً متاحة
+const approvePlayer = async (req, res) => {
+    try {
+        const { playerId, teamId } = req.body;
+        const userId = req.user.id;
+        
+        console.log("🔍 Approve player request:", { playerId, teamId, userId });
+        
+        // 1. التحقق من وجود الفريق
+        const team = await Team.findById(teamId)
+            .populate('managerId', '_id username')
+            .populate('pendingMembers', '_id username');
+        
+        if (!team) {
+            return res.status(404).json({ 
+                success: false, 
+                message: 'الفريق غير موجود' 
+            });
+        }
+        
+        console.log("📋 Team found:", team.name);
+        console.log("👥 Pending members:", team.pendingMembers.map(p => ({ id: p._id, name: p.username })));
+        
+        // 2. التحقق من أن المستخدم هو مناجير الفريق
+        const isManager = team.managerId._id.toString() === userId.toString();
+        const isAdmin = req.user.role === 'admin';
+        
+        if (!isManager && !isAdmin) {
+            return res.status(403).json({ 
+                success: false, 
+                message: 'غير مصرح لك - فقط مناجير الفريق يمكنه قبول اللاعبين' 
+            });
+        }
+        
+        // 3. التحقق من أن اللاعب في قائمة الانتظار
+        const isPending = team.pendingMembers.some(p => p._id.toString() === playerId.toString());
+        
+        if (!isPending) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'اللاعب ليس في قائمة طلبات الانضمام أو تم قبوله مسبقاً' 
+            });
+        }
+        
+        // 4. التحقق من السعة (4 لاعبين كحد أقصى)
+        if (team.members.length >= 4) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'عذراً، الفريق مكتمل (4 لاعبين كحد أقصى)' 
+            });
+        }
+        
+        // 5. التحقق من أن اللاعب ليس في فريق آخر
+        const player = await User.findById(playerId);
+        if (player.teamId && player.teamId.toString() !== teamId.toString()) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'اللاعب منضم لفريق آخر بالفعل' 
+            });
+        }
+        
+        // 6. تنفيذ العملية (بدون ترانزاكشن لتبسيط الأمور)
+        // إزالة من pendingMembers وإضافة إلى members
+        await Team.findByIdAndUpdate(
+            teamId,
+            { 
+                $pull: { pendingMembers: playerId },
+                $addToSet: { members: playerId }
+            }
+        );
+        
+        // تحديث بيانات اللاعب
+        await User.findByIdAndUpdate(
+            playerId,
+            { 
+                teamId: teamId,
+                isApproved: true,
+                role: 'player',
+                joinedAt: new Date()
+            }
+        );
+        
+        console.log("✅ Player approved successfully");
+        
+        res.json({ 
+            success: true, 
+            message: `تم قبول ${player.username} في فريق ${team.name} بنجاح ✅`,
+            teamId,
+            playerId
+        });
+        
+    } catch (error) {
+        console.error("❌ Error in approvePlayer:", error);
+        res.status(500).json({ 
+            success: false, 
+            message: "حدث خطأ أثناء قبول اللاعب",
+            error: error.message 
+        });
     }
 };
 
