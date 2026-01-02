@@ -132,12 +132,16 @@ const getTeamGwData = async (req, res) => {
 const getGwStatus = async (req, res) => {
     try {
         const now = new Date();
+        // الجولة التي لم يبدأ وقتها بعد (القادمة)
         const nextGw = await Gameweek.findOne({ deadline_time: { $gt: now } }).sort({ number: 1 });
+        // الجولة التي مر وقتها (الحالية)
         const currentGw = await Gameweek.findOne({ deadline_time: { $lte: now } }).sort({ number: -1 });
 
         res.json({
+            // الحالية للعرض هي 19
             id: currentGw ? currentGw.number : 1,
-            nextGwId: nextGw ? nextGw.number : (currentGw ? currentGw.number + 1 : 1),
+            // القادمة (التي تظهر الخصوم والتشكيلة لها) هي 20
+            nextGwId: nextGw ? nextGw.number : (currentGw ? currentGw.number + 1 : 20),
             deadline_time: nextGw ? nextGw.deadline_time : (currentGw ? currentGw.deadline_time : now),
             isDeadlinePassed: true 
         });

@@ -411,7 +411,8 @@ const getLeagueAwards = async (req, res) => {
         allGwData.forEach(gw => {
             if (!gw.lineup) return;
             gw.lineup.forEach(p => {
-                if (p.isStarter && p.userId) {
+                //if (p.isStarter && p.userId) {
+				if (p.userId) {
                     const pId = p.userId._id.toString();
                     const netScore = (p.rawPoints || 0) - (p.transferCost || 0);
                     

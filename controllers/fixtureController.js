@@ -200,14 +200,33 @@ const getNextOpponent = async (req, res) => {
         const user = await User.findById(req.user.id);
         const team = await Team.findById(user.teamId);
         const league = await League.findById(team.leagueId);
+
+        // 👈 التعديل الجوهري: إضافة 1 لرقم الجولة الحالية
+        // إذا كان currentGw = 19، سيبحث النظام عن مواجهات الجولة 20
+        const nextGw = league.currentGw + 1;
+
         const fixture = await Fixture.findOne({
-            leagueId: league._id, gameweek: league.currentGw,
+            leagueId: league._id, 
+            gameweek: nextGw, // استخدام الجولة القادمة
             $or: [ { homeTeamId: team._id }, { awayTeamId: team._id } ]
-        }).populate('homeTeamId', 'name logoUrl').populate('awayTeamId', 'name logoUrl');
+        })
+        .populate('homeTeamId', 'name logoUrl')
+        .populate('awayTeamId', 'name logoUrl');
+
         if (!fixture) return res.json({ hasFixture: false });
+
         const isHome = fixture.homeTeamId._id.toString() === team._id.toString();
-        res.json({ hasFixture: true, opponent: isHome ? fixture.awayTeamId : fixture.homeTeamId, isHome, fixtureId: fixture._id });
-    } catch (error) { res.status(500).json({ message: error.message }); }
+        
+        res.json({ 
+            hasFixture: true, 
+            opponent: isHome ? fixture.awayTeamId : fixture.homeTeamId, 
+            isHome, 
+            fixtureId: fixture._id,
+            gameweek: nextGw // إرسال رقم الجولة للتأكد في الواجهة
+        });
+    } catch (error) { 
+        res.status(500).json({ message: error.message }); 
+    }
 };
 
 module.exports = { 
