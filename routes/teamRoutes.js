@@ -1,9 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/authMiddleware');
-const upload = require('../middleware/uploadMiddleware'); // 🆕 ضروري جداً لمعالجة رفع ملفات الإكسل
+const upload = require('../middleware/uploadMiddleware');
 
-// استدعاء الدوال من الكونترولر (تم إضافة importPenaltiesExcel)
+// استدعاء الدوال من الكونترولر بعد التحديثات الأخيرة
 const { 
     getPLTeams, 
     selectTeam, 
@@ -20,10 +20,10 @@ const {
     approveSubstitution,
     rejectSubstitution,
     changeTeamManager,
-    importPenaltiesExcel // 🆕 2. إضافة الدالة الجديدة هنا
+    importPenaltiesExcel
 } = require('../controllers/teamController');
 
-// لضمان عدم حدوث خطأ إذا كانت الدالة غير موجودة
+// لضمان التوافق بين مسميات الدوال
 const finalSelectFunction = selectTeam || createTeam;
 
 // ==========================================
@@ -42,9 +42,17 @@ router.post('/select', protect, finalSelectFunction);
 // ==========================================
 // --- 3. روابط انضمام اللاعبين والموافقات ---
 // ==========================================
-router.post('/join-request', protect, joinTeamRequest);      
-router.get('/players/pending', protect, getPendingPlayers); 
-router.put('/players/approve', protect, approvePlayer);      
+router.post('/join-request', protect, joinTeamRequest);     
+
+// 🆕 المسار المحدث لجلب الطلبات: يسمح بجلب طلبات فريق معين عبر الـ ID (للمناجير)
+router.get('/pending-members/:teamId', protect, getPendingPlayers);
+
+// 🆕 مسار بديل لجلب طلبات فريق المستخدم الحالي (للمناجير)
+router.get('/players/pending', protect, getPendingPlayers);
+
+// قبول لاعب (بواسطة المناجير أو الأدمن)
+router.put('/accept-member', protect, approvePlayer); // المسار المستخدم في MyTeam.jsx
+router.put('/players/approve', protect, approvePlayer); 
 
 // ==========================================
 // --- 4. روابط نظام التبديلات (Substitution) ---
@@ -56,12 +64,11 @@ router.put('/reject-sub', protect, rejectSubstitution);    // للأدمن: رف
 // ==========================================
 // --- 5. روابط الأدمن (إدارة البطولة والاستيراد) ---
 // ==========================================
-router.get('/pending', protect, getPendingTeams);         
+router.get('/pending', protect, getPendingTeams);          
 router.put('/approve-manager', protect, approveManager);  
 router.put('/update-list', protect, updateSeasonTeams);   
 
-// 🆕 المسار الجديد لاستيراد سجل مخالفات التشكيلة من ملف إكسل
-// ملاحظة: 'file' هو اسم الحقل الذي سنرسله من الفرونت إند عبر FormData
+// استيراد سجل مخالفات التشكيلة من ملف إكسل
 router.post('/import-penalties-excel', protect, upload.single('file'), importPenaltiesExcel);
 
 // ==========================================
