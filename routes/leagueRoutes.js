@@ -12,8 +12,8 @@ router.post('/join', protect, leagueController.joinLeague);
 // Management
 router.get('/teams', protect, leagueController.getLeagueTeams);
 router.get('/managers', protect, leagueController.getLeagueManagers);
-router.post('/promote', protect, leagueController.promoteMember);
-router.post('/demote', protect, leagueController.demoteMember);
+router.put('/promote', protect, leagueController.promoteMember);
+router.put('/demote', protect, leagueController.demoteMember);
 
 // Stats & Results
 router.get('/standings', protect, leagueController.getStandings);

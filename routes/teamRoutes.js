@@ -15,6 +15,7 @@ const {
     joinTeamRequest,    
     getPendingPlayers,  
     approvePlayer,
+	rejectPlayer,
     getImageProxy,
     requestSubstitution,
     approveSubstitution,

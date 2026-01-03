@@ -597,6 +597,6 @@ const getImageProxy = async (req, res) => {
 module.exports = { 
     getPLTeams, updateSeasonTeams, selectTeam, createTeam: selectTeam, getMyTeam, 
     importPenaltiesExcel, approveManager, getPendingTeams, getPendingPlayers, 
-    approvePlayer, joinTeamRequest, requestSubstitution, approveSubstitution, 
+    approvePlayer, joinTeamRequest, rejectPlayer, requestSubstitution, approveSubstitution, 
     rejectSubstitution, changeTeamManager, getImageProxy 
 };
