@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const leagueController = require('../controllers/leagueController');
-const { protect } = require('../middleware/authMiddleware');
+//const { protect } = require('../middleware/authMiddleware');
+const { protect, admin } = require('../middleware/authMiddleware');
 const upload = require('../middleware/uploadMiddleware'); 
 
 // Create & Join
@@ -14,6 +15,7 @@ router.get('/teams', protect, leagueController.getLeagueTeams);
 router.get('/managers', protect, leagueController.getLeagueManagers);
 router.put('/promote', protect, leagueController.promoteMember);
 router.put('/demote', protect, leagueController.demoteMember);
+router.get('/admin/all-teams', protect, admin, leagueController.getAdminAllTeams);
 
 // Stats & Results
 router.get('/standings', protect, leagueController.getStandings);

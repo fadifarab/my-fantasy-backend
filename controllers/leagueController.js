@@ -100,6 +100,27 @@ const getLeagueManagers = async (req, res) => {
   } catch (error) { res.status(500).json({ message: error.message }); }
 };
 
+// دالة إدارية بحتة لجلب كافة تفاصيل الفرق والأعضاء
+const getAdminAllTeams = async (req, res) => {
+    try {
+        // التأكد من أن المستدعي هو أدمن النظام
+        if (req.user.role !== 'admin') {
+            return res.status(403).json({ message: 'صلاحية مرفوضة: للمدير فقط' });
+        }
+
+        const teams = await Team.find()
+            .populate('managerId', 'username') // جلب بيانات مدير الفريق
+            .populate({
+                path: 'members',
+                select: 'username fplId totalPoints' // جلب البيانات التفصيلية للأعضاء
+            });
+
+        res.json(teams);
+    } catch (error) {
+        res.status(500).json({ message: "فشل جلب البيانات الإدارية للفرق" });
+    }
+};
+
 const getTeamHistoryFull = async (req, res) => {
     try {
         const { teamId } = req.params;
@@ -526,5 +547,5 @@ module.exports = {
     promoteMember, demoteMember, getStandings, getGameweekResults, setLeagueGameweek,
     getLeagueStats, getPlayersStats, syncPlayerHistory, getTeamHistoryFull,
     getLeagueAwards, getTeamForm, uploadLeagueLogo, syncUserMetaData, getFplSchedule,
-    importPastResults // 🆕 تصدير الدالة الجديدة
+    importPastResults, getAdminAllTeams
 };
