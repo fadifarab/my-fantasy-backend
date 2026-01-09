@@ -204,8 +204,8 @@ const importPenaltiesExcel = async (req, res) => {
                 } else if (missed === 3) {
                     team.penaltyPoints = 2;
                 } else if (missed >= 4) {
-                    team.penaltyPoints = 100;
-                    team.isDisqualified = true;
+                    team.penaltyPoints = 3;
+                    team.isDisqualified = false;
                 } else {
                     team.penaltyPoints = 0;
                 }
