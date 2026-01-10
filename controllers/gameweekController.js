@@ -28,8 +28,26 @@ const syncGameweeks = async (req, res) => {
     } catch (error) { res.status(500).json({ message: error.message }); }
 };
 
+// دالة مساعدة للتحقق من توفر الخاصية في المرحلة (ذهاب/إياب)
+const isChipAvailableInPhase = async (teamId, chipName, targetGw) => {
+    if (!chipName || chipName === 'none') return true;
+
+    // تحديد نطاق الجولات بناءً على مرحلة الدوري
+    const startPhase = targetGw <= 19 ? 1 : 20;
+    const endPhase = targetGw <= 19 ? 19 : 38;
+
+    // البحث عن أي جولة أخرى في نفس المرحلة استُخدمت فيها هذه الخاصية
+    const usedBefore = await GameweekData.findOne({
+        teamId: teamId,
+        activeChip: chipName,
+        gameweek: { $gte: startPhase, $lte: endPhase, $ne: targetGw } // $ne لضمان عدم فحص الجولة الحالية نفسها عند التحديث
+    });
+
+    return !usedBefore; // إذا وجدنا سجل، نرجع false (غير متاحة)
+};
+
 // 2. دالة حفظ التشكيلة اليدوية للمناجير
-const setLineup = async (req, res) => {
+/*const setLineup = async (req, res) => {
     try {
         const { players, activeChip, gw } = req.body; 
         const team = await Team.findOne({ managerId: req.user.id });
@@ -69,6 +87,65 @@ const setLineup = async (req, res) => {
         await Team.findByIdAndUpdate(team._id, { $set: { missedDeadlines: 0 } });
         res.json({ message: `تم حفظ تشكيلة الجولة ${nextGw} بنجاح ✅` });
     } catch (error) { res.status(500).json({ message: 'خطأ في حفظ التشكيلة' }); }
+};*/
+
+// 2. دالة حفظ التشكيلة المحدثة
+const setLineup = async (req, res) => {
+    try {
+        const { players, activeChip, gw } = req.body; 
+        const team = await Team.findOne({ managerId: req.user.id });
+        if (!team) return res.status(404).json({ message: 'الفريق غير موجود' });
+
+        const league = await League.findById(team.leagueId);
+        const nextGw = parseInt(gw); // التأكد من أنه رقم
+
+        // التحقق من رقم الجولة
+        if (nextGw !== (league.currentGw + 1)) {
+            return res.status(403).json({ message: `⛔ يمكنك فقط تعديل الجولة القادمة (${league.currentGw + 1})` });
+        }
+
+        // التحقق من الوقت (Deadline)
+        const localGw = await Gameweek.findOne({ number: nextGw });
+        if (localGw && new Date() > new Date(localGw.deadline_time)) {
+            return res.status(400).json({ message: `⛔ انتهى وقت التعديل لجولة ${nextGw}` });
+        }
+
+        // --- 🚀 إضافة التحقق من توفر الخاصية في المرحلة ---
+        if (activeChip && activeChip !== 'none') {
+            const available = await isChipAvailableInPhase(team._id, activeChip, nextGw);
+            if (!available) {
+                const phaseName = nextGw <= 19 ? "الذهاب (1-19)" : "الإياب (20-38)";
+                return res.status(400).json({ 
+                    message: `⛔ لقد استهلكت خاصية (${activeChip}) سابقاً في مرحلة ${phaseName}` 
+                });
+            }
+        }
+        // ----------------------------------------------
+
+        const formattedPlayers = players.map(p => ({
+            userId: p.userId?._id || p.userId, 
+            isStarter: p.isStarter, 
+            isCaptain: p.isCaptain,
+            rawPoints: 0, transferCost: 0, finalScore: 0
+        }));
+
+        await GameweekData.findOneAndUpdate(
+            { teamId: team._id, gameweek: nextGw },
+            { 
+                lineup: formattedPlayers, 
+                activeChip: activeChip || 'none', 
+                leagueId: team.leagueId, 
+                isInherited: false,
+                'stats.isProcessed': false 
+            },
+            { upsert: true, new: true }
+        );
+
+        await Team.findByIdAndUpdate(team._id, { $set: { missedDeadlines: 0 } });
+        res.json({ message: `تم حفظ تشكيلة الجولة ${nextGw} بنجاح ✅` });
+    } catch (error) { 
+        res.status(500).json({ message: 'خطأ في حفظ التشكيلة' }); 
+    }
 };
 
 // 3. جلب بيانات التشكيلة لعرضها (إظهار الخواص للجميع)
@@ -225,9 +302,13 @@ const calculateScoresInternal = async (leagueId, manualGw = null) => {
 
             const last = await GameweekData.findOne({ teamId: team._id, gameweek: { $lt: targetGw } }).sort({ gameweek: -1 });
             gwData = await GameweekData.create({
-                teamId: team._id, leagueId, gameweek: targetGw, isInherited: true,
+                teamId: team._id, 
+				leagueId, 
+				gameweek: targetGw, 
+				isInherited: true,
                 lineup: last ? last.lineup.map(p => ({...p.toObject(), rawPoints:0, finalScore:0})) : [], 
-                activeChip: 'none', stats: { totalPoints: 0, isProcessed: false }
+                activeChip: 'none', 
+				stats: { totalPoints: 0, isProcessed: false }
             });
         }
 

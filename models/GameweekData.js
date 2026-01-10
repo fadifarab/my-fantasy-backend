@@ -37,9 +37,14 @@ const gameweekDataSchema = new mongoose.Schema({
     required: true
   },
   lineup: [playerSchema], // استخدام السكيما الفرعية
+  
+  isInherited: { 
+    type: Boolean, 
+    default: false 
+  },
   activeChip: {
     type: String,
-    enum: ['none', 'tripleCaptain', 'benchBoost', 'freeHit', 'wildcard', 'theBest'], // أضفنا theBest
+    enum: ['none', 'tripleCaptain', 'benchBoost', 'freeHit', 'theBest'], // أضفنا theBest
     default: 'none'
   },
   stats: {
