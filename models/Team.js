@@ -41,7 +41,9 @@ const teamSchema = new mongoose.Schema({
     drawn: { type: Number, default: 0 },
     lost: { type: Number, default: 0 },
     totalFplPoints: { type: Number, default: 0 }, 
-    bonusPoints: { type: Number, default: 0 }
+    bonusPoints: { type: Number, default: 0 },
+	position: { type: Number, default: 0 },      // المركز الحالي (اللحظي)
+    lastGwPosition: { type: Number, default: 0 } // ✅ المركز النهائي في الجولة السابقة
   }
 }, { timestamps: true });
 

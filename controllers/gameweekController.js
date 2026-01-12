@@ -261,12 +261,22 @@ const updateLeagueStandingsInternal = async (leagueId) => {
             }
         });
     }
+	
 
-    const sortedTeams = await Team.find({ leagueId, isApproved: true });
+	const sortedTeams = await Team.find({ leagueId, isApproved: true });
+	sortedTeams.sort((a, b) => (b.stats.points - a.stats.points) || (b.stats.totalFplPoints - a.stats.totalFplPoints));
+
+	await Promise.all(sortedTeams.map((team, index) => 
+		Team.findByIdAndUpdate(team._id, { 
+			$set: { 'stats.position': index + 1 } // تحديث المركز اللحظي فقط
+		})
+	));
+
+    /*const sortedTeams = await Team.find({ leagueId, isApproved: true });
     sortedTeams.sort((a, b) => (b.stats.points - a.stats.points) || (b.stats.totalFplPoints - a.stats.totalFplPoints));
     await Promise.all(sortedTeams.map((team, index) => 
         Team.findByIdAndUpdate(team._id, { $set: { 'stats.position': index + 1 } })
-    ));
+    ));*/
 };
 
 // 6. الحساب الكامل للجولة الجارية
@@ -427,13 +437,24 @@ const importLineupsFromExcel = async (req, res) => {
 
 // تصفير الدوري
 const resetLeagueStandings = async (req, res) => {
-    try {
+    /*try {
         if (req.user.role !== 'admin') return res.status(403).json({ message: 'للأدمن فقط' });
         const { leagueId } = req.body;
         await Team.updateMany({ leagueId }, { 
             $set: { 
                 'stats.points': 0, 'stats.totalFplPoints': 0, 'stats.won': 0, 'stats.bonusPoints': 0,
                 'stats.played': 0, 'stats.position': 0, 'penaltyPoints': 0, 'missedDeadlines': 0 
+            } 
+        });*/
+    try {
+        if (req.user.role !== 'admin') return res.status(403).json({ message: 'للأدمن فقط' });
+        const { leagueId } = req.body;
+        await Team.updateMany({ leagueId }, { 
+            $set: { 
+                'stats.points': 0, 'stats.totalFplPoints': 0, 'stats.won': 0, 'stats.bonusPoints': 0,
+                'stats.played': 0, 'stats.position': 0, 
+                'stats.lastGwPosition': 0, // ✅ تصفير حقل المقارنة
+                'penaltyPoints': 0, 'missedDeadlines': 0 
             } 
         });
         await Fixture.updateMany({ leagueId }, { $set: { isFinished: false, homeScore: 0, awayScore: 0, winnerId: null } });
@@ -444,7 +465,7 @@ const resetLeagueStandings = async (req, res) => {
     } catch (error) { res.status(500).json({ message: error.message }); }
 };
 
-const startNewGameweek = async (req, res) => {
+/*const startNewGameweek = async (req, res) => {
     try {
         const { leagueId } = req.body;
         const league = await League.findById(leagueId);
@@ -452,6 +473,35 @@ const startNewGameweek = async (req, res) => {
         await league.save();
         res.json({ message: `✅ بدأت الجولة ${league.currentGw}` });
     } catch (error) { res.status(500).json({ message: error.message }); }
+};*/
+
+const startNewGameweek = async (req, res) => {
+    try {
+        const { leagueId } = req.body;
+        const league = await League.findById(leagueId);
+        
+        // 1. جلب جميع الفرق في هذا الدوري
+        const teams = await Team.find({ leagueId });
+
+        // 2. تثبيت المركز الحالي كـ "مركز الجولة الماضية" قبل الانتقال للجولة الجديدة
+        const updatePositions = teams.map(team => {
+            return Team.findByIdAndUpdate(team._id, {
+                $set: { 'stats.lastGwPosition': team.stats.position }
+            });
+        });
+        
+        await Promise.all(updatePositions);
+
+        // 3. زيادة رقم الجولة
+        league.currentGw += 1;
+        await league.save();
+
+        res.json({ 
+            message: `✅ تم تثبيت مراكز الجولة ${league.currentGw - 1} وبدأت الجولة ${league.currentGw}` 
+        });
+    } catch (error) { 
+        res.status(500).json({ message: error.message }); 
+    }
 };
 
 module.exports = { 
