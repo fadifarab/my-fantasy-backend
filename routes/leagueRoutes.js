@@ -3,7 +3,8 @@ const router = express.Router();
 const leagueController = require('../controllers/leagueController');
 //const { protect } = require('../middleware/authMiddleware');
 const { protect, admin } = require('../middleware/authMiddleware');
-const upload = require('../middleware/uploadMiddleware'); 
+const upload = require('../middleware/uploadMiddleware');
+//const auth = require('../middleware/auth'); 
 
 // Create & Join
 router.post('/', protect, leagueController.createLeague);
@@ -41,6 +42,8 @@ router.post('/logo', protect, upload.single('logo'), leagueController.uploadLeag
 
 // Awards & Schedule
 router.get('/awards', protect, leagueController.getLeagueAwards);
-router.get('/schedule', protect, leagueController.getFplSchedule); 
+router.get('/schedule', protect, leagueController.getFplSchedule);
+router.post('/update-tactic', protect, leagueController.updateLeagueTactic);
+router.get('/extended-stats', protect, leagueController.getLeagueStatsExtended); 
 
 module.exports = router;
