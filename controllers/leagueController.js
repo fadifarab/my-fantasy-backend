@@ -10,7 +10,7 @@ const XLSX = require('xlsx'); // 🆕 تأكد من تثبيت الحزمة npm 
 // ==========================================
 // 1. خوارزمية التشكيلة المثالية (Dream Team)
 // ==========================================
-const assignDreamTeamPositions = (players) => {
+/*const assignDreamTeamPositions = (players) => {
     if (!players || players.length === 0) return [];
     const squad = players.slice(0, 15);
     
@@ -26,6 +26,110 @@ const assignDreamTeamPositions = (players) => {
     const mid = outfield.slice(3, 7).map(p => ({ ...p, position: 'MID', isStarter: true }));
     const def = outfield.slice(7, 10).map(p => ({ ...p, position: 'DEF', isStarter: true }));
 
+    const benchRaw = squad.slice(11, 15);
+    const bench = benchRaw.map((p, index) => ({
+        ...p,
+        position: (index === benchRaw.length - 1) ? 'GKP' : 'SUB',
+        isStarter: false
+    }));
+
+    return [gk, ...def, ...mid, ...fwd, ...bench];
+};*/
+
+/*const assignDreamTeamPositions = (players, tactic = '433') => {
+    if (!players || players.length === 0) return [];
+    
+    // فك شفرة التكتيك (مثلاً "352" تصبح د3، و5، ه2)
+    const tDef = parseInt(tactic[0]);
+    const tMid = parseInt(tactic[1]);
+    const tFwd = parseInt(tactic[2]);
+
+    const squad = players.slice(0, 15);
+    if (squad.length < 11) {
+        return squad.map(p => ({ ...p, position: 'MID', isStarter: true }));
+    }
+
+    // 1. الحارس (دائماً آخر لاعب في الـ 11 الأوائل حسب منطقك الأصلي)
+    const gk = { ...squad[10], position: 'GKP', isStarter: true };
+
+    // 2. اللاعبين الـ 10 الآخرين (Outfield)
+    const outfield = squad.slice(0, 10);
+
+    // 3. توزيع المهاجمين (يأخذون أول حصة من الـ 10 الأوائل)
+    const fwd = outfield.slice(0, tFwd).map((p, index) => ({ 
+        ...p, 
+        position: 'FWD', 
+        isStarter: true, 
+        isCaptain: index === 0 // الأول دائماً كابتن
+    }));
+
+    // 4. توزيع لاعبي الوسط (يأخذون الحصة التالية)
+    const mid = outfield.slice(tFwd, tFwd + tMid).map(p => ({ 
+        ...p, 
+        position: 'MID', 
+        isStarter: true 
+    }));
+
+    // 5. توزيع المدافعين (يأخذون ما تبقى من الـ 10)
+    const def = outfield.slice(tFwd + tMid, 10).map(p => ({ 
+        ...p, 
+        position: 'DEF', 
+        isStarter: true 
+    }));
+
+    // 6. الاحتياط (من اللاعب 12 إلى 15)
+    const benchRaw = squad.slice(11, 15);
+    const bench = benchRaw.map((p, index) => ({
+        ...p,
+        position: (index === benchRaw.length - 1) ? 'GKP' : 'SUB',
+        isStarter: false
+    }));
+
+    return [gk, ...def, ...mid, ...fwd, ...bench];
+};*/
+
+const assignDreamTeamPositions = (players, tactic = '433') => {
+    if (!players || players.length === 0) return [];
+    
+    // فك شفرة التكتيك (مثلاً "352" تصبح د3، و5، ه2)
+    const tDef = parseInt(tactic[0]);
+    const tMid = parseInt(tactic[1]);
+    const tFwd = parseInt(tactic[2]);
+
+    const squad = players.slice(0, 15);
+    if (squad.length < 11) {
+        return squad.map(p => ({ ...p, position: 'MID', isStarter: true }));
+    }
+
+    // 1. الحارس (دائماً آخر لاعب في الـ 11 الأوائل حسب منطقك الأصلي)
+    const gk = { ...squad[10], position: 'GKP', isStarter: true };
+
+    // 2. اللاعبين الـ 10 الآخرين (Outfield)
+    const outfield = squad.slice(0, 10);
+
+    // 3. توزيع المهاجمين (يأخذون أول حصة من الـ 10 الأوائل)
+    const fwd = outfield.slice(0, tFwd).map((p, index) => ({ 
+        ...p, 
+        position: 'FWD', 
+        isStarter: true, 
+        isCaptain: index === 0 // الأول دائماً كابتن
+    }));
+
+    // 4. توزيع لاعبي الوسط (يأخذون الحصة التالية)
+    const mid = outfield.slice(tFwd, tFwd + tMid).map(p => ({ 
+        ...p, 
+        position: 'MID', 
+        isStarter: true 
+    }));
+
+    // 5. توزيع المدافعين (يأخذون ما تبقى من الـ 10)
+    const def = outfield.slice(tFwd + tMid, 10).map(p => ({ 
+        ...p, 
+        position: 'DEF', 
+        isStarter: true 
+    }));
+
+    // 6. الاحتياط (من اللاعب 12 إلى 15)
     const benchRaw = squad.slice(11, 15);
     const bench = benchRaw.map((p, index) => ({
         ...p,
@@ -377,7 +481,7 @@ const syncPlayerHistory = async (req, res) => {
     } catch (error) { res.status(500).json({ message: error.message }); }
 };
 
-const getLeagueAwards = async (req, res) => {
+/*const getLeagueAwards = async (req, res) => {
     try {
         const { leagueId, type, range } = req.query;
         let startGw, endGw;
@@ -466,6 +570,212 @@ const getLeagueAwards = async (req, res) => {
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
+};*/
+
+/*const getLeagueAwards = async (req, res) => {
+    try {
+        const { leagueId, type, range } = req.query;
+        
+        // جلب الدوري لمعرفة التكتيك المختار من الأدمن
+        const league = await League.findById(leagueId);
+        const currentTactic = league.dreamTeamTactic || '433';
+
+        let startGw, endGw;
+        if (type === 'gameweek') {
+            startGw = endGw = parseInt(range);
+        } else if (type === 'month') {
+            [startGw, endGw] = range.split(',').map(Number);
+        } else {
+            startGw = 1; endGw = 38;
+        }
+
+        const teams = await Team.find({ leagueId, isApproved: true });
+        const teamScores = [];
+        for (const team of teams) {
+            const matches = await Fixture.find({
+                leagueId, isFinished: true,
+                gameweek: { $gte: startGw, $lte: endGw },
+                $or: [{ homeTeamId: team._id }, { awayTeamId: team._id }]
+            });
+            let totalScoreInRange = 0;
+            matches.forEach(m => {
+                totalScoreInRange += (m.homeTeamId.toString() === team._id.toString()) ? m.homeScore : m.awayScore;
+            });
+            teamScores.push({ ...team.toObject(), totalScore: totalScoreInRange });
+        }
+        teamScores.sort((a, b) => b.totalScore - a.totalScore);
+        const bestTeam = teamScores[0];
+
+        const allGwData = await GameweekData.find({ 
+            leagueId, gameweek: { $gte: startGw, $lte: endGw } 
+        }).populate('teamId', 'name logoUrl').populate('lineup.userId', 'username');
+
+        const playerMap = {};
+        allGwData.forEach(gw => {
+            if (!gw.lineup) return;
+            gw.lineup.forEach(p => {
+                if (p.userId) {
+                    const pId = p.userId._id.toString();
+                    const netScore = (p.rawPoints || 0) - (p.transferCost || 0);
+                    const gwKey = `${pId}-${gw.gameweek}`;
+                    if (!playerMap[pId]) {
+                        playerMap[pId] = { id: pId, name: p.userId.username, teamName: gw.teamId?.name || 'Unknown', score: 0, gws: new Set() };
+                    }
+                    if (!playerMap[pId].gws.has(gwKey)) {
+                        playerMap[pId].score += netScore;
+                        playerMap[pId].gws.add(gwKey);
+                    }
+                }
+            });
+        });
+
+        const sortedPlayers = Object.values(playerMap).sort((a, b) => b.score - a.score);
+        
+        // ✅ تمرير التكتيك المختار للخوارزمية
+        const dreamTeam = assignDreamTeamPositions(sortedPlayers, currentTactic);
+        const bestPlayer = dreamTeam.length > 0 ? (dreamTeam.find(p => p.isCaptain) || dreamTeam[0]) : null;
+
+        // إرسال التكتيك للفرونت إند ليرسم الملعب بناءً عليه
+        res.json({ bestTeam, bestPlayer, dreamTeam, tactic: currentTactic });
+    } catch (error) { res.status(500).json({ message: error.message }); }
+};*/
+
+const getLeagueAwards = async (req, res) => {
+    try {
+        const { leagueId, type, range } = req.query;
+        const league = await League.findById(leagueId);
+        if (!league) return res.status(404).json({ message: 'البطولة غير موجودة' });
+
+        // 🎯 منطق اختيار التكتيك المنفصل لكل جولة وشهر
+        let selectedTactic = '433'; // الافتراضي
+
+        if (type === 'gameweek') {
+            const gwNum = parseInt(range);
+            const found = league.gwTactics.find(t => t.gw === gwNum);
+            selectedTactic = found ? found.tactic : '433';
+        } 
+        else if (type === 'month') {
+            const found = league.monthTactics.find(t => t.range === range);
+            selectedTactic = found ? found.tactic : '433';
+        } 
+        else if (type === 'season') {
+            selectedTactic = league.dreamTeamTactic || '433';
+        }
+
+        let startGw, endGw;
+        if (type === 'gameweek') {
+            startGw = endGw = parseInt(range);
+        } else if (type === 'month') {
+            [startGw, endGw] = range.split(',').map(Number);
+        } else {
+            startGw = 1; endGw = 38;
+        }
+
+        const teams = await Team.find({ leagueId, isApproved: true });
+        const teamScores = [];
+        for (const team of teams) {
+            const matches = await Fixture.find({
+                leagueId, isFinished: true,
+                gameweek: { $gte: startGw, $lte: endGw },
+                $or: [{ homeTeamId: team._id }, { awayTeamId: team._id }]
+            });
+            let totalScoreInRange = 0;
+            matches.forEach(m => {
+                totalScoreInRange += (m.homeTeamId.toString() === team._id.toString()) ? m.homeScore : m.awayScore;
+            });
+            teamScores.push({ ...team.toObject(), totalScore: totalScoreInRange });
+        }
+        teamScores.sort((a, b) => b.totalScore - a.totalScore);
+        const bestTeam = teamScores[0];
+
+        const allGwData = await GameweekData.find({ 
+            leagueId, gameweek: { $gte: startGw, $lte: endGw } 
+        }).populate('teamId', 'name logoUrl').populate('lineup.userId', 'username');
+
+        const playerMap = {};
+        allGwData.forEach(gw => {
+            if (!gw.lineup) return;
+            gw.lineup.forEach(p => {
+                if (p.userId) {
+                    const pId = p.userId._id.toString();
+                    const netScore = (p.rawPoints || 0) - (p.transferCost || 0);
+                    const gwKey = `${pId}-${gw.gameweek}`;
+                    if (!playerMap[pId]) {
+                        playerMap[pId] = { id: pId, name: p.userId.username, teamName: gw.teamId?.name || 'Unknown', score: 0, gws: new Set() };
+                    }
+                    if (!playerMap[pId].gws.has(gwKey)) {
+                        playerMap[pId].score += netScore;
+                        playerMap[pId].gws.add(gwKey);
+                    }
+                }
+            });
+        });
+
+        const sortedPlayers = Object.values(playerMap).sort((a, b) => b.score - a.score);
+        
+        // تطبيق التكتيك المختار بشكل ديناميكي
+        const dreamTeam = assignDreamTeamPositions(sortedPlayers, selectedTactic);
+        const bestPlayer = dreamTeam.length > 0 ? (dreamTeam.find(p => p.isCaptain) || dreamTeam[0]) : null;
+
+        res.json({ bestTeam, bestPlayer, dreamTeam, tactic: selectedTactic });
+    } catch (error) { res.status(500).json({ message: error.message }); }
+};
+
+
+
+/*const updateLeagueTactic = async (req, res) => {
+    try {
+        // التحقق من أن المستخدم أدمن
+        if (req.user.role !== 'admin') return res.status(403).json({ message: 'للأدمن فقط' });
+        
+        const { leagueId, tactic } = req.body;
+        
+        // تحديث حقل التكتيك في موديل الدوري
+        const league = await League.findByIdAndUpdate(
+            leagueId, 
+            { dreamTeamTactic: tactic }, 
+            { new: true }
+        );
+        
+        if (!league) return res.status(404).json({ message: "الدوري غير موجود" });
+
+        res.json({ 
+            message: `تم تغيير التكتيك إلى ${tactic} بنجاح ✅`, 
+            tactic: league.dreamTeamTactic 
+        });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};*/
+
+const updateLeagueTactic = async (req, res) => {
+    try {
+        if (req.user.role !== 'admin') return res.status(403).json({ message: 'للأدمن فقط' });
+        
+        const { leagueId, tactic, type, range } = req.body; 
+        const league = await League.findById(leagueId);
+        if (!league) return res.status(404).json({ message: 'البطولة غير موجودة' });
+
+        if (type === 'gameweek') {
+            const gwNum = parseInt(range);
+            const idx = league.gwTactics.findIndex(t => t.gw === gwNum);
+            if (idx > -1) league.gwTactics[idx].tactic = tactic;
+            else league.gwTactics.push({ gw: gwNum, tactic });
+        } 
+        else if (type === 'month') {
+            const idx = league.monthTactics.findIndex(t => t.range === range);
+            if (idx > -1) league.monthTactics[idx].tactic = tactic;
+            else league.monthTactics.push({ range, tactic });
+        } 
+        else if (type === 'season') {
+            league.dreamTeamTactic = tactic;
+        }
+
+        await league.save();
+        res.json({ message: `تم حفظ تكتيك ${tactic} بنجاح ✅` });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
 };
 
 const getTeamForm = async (req, res) => {
@@ -542,10 +852,233 @@ const getFplSchedule = async (req, res) => {
     } catch (error) { res.status(500).json({ message: "فشل في جلب الجدول من FPL" }); }
 };
 
+/*const getLeagueStatsExtended = async (req, res) => {
+    try {
+        const { leagueId } = req.query;
+        const teams = await Team.find({ leagueId, isApproved: true });
+        const fixtures = await Fixture.find({ leagueId, isFinished: true }).sort({ gameweek: 1 });
+
+        // 1. الفريق الأعلى جمعاً للنقاط (أفضل هجوم/نقاط FPL)
+        const bestAttack = [...teams].sort((a, b) => b.stats.totalFplPoints - a.stats.totalFplPoints)[0];
+
+        // 2. الفريق الأعلى في جولة واحدة
+        const allGwData = await GameweekData.find({ leagueId, 'stats.isProcessed': true })
+            .populate('teamId', 'name logoUrl');
+        
+        let highestGwRecord = { points: 0, teamName: '--', gw: 0 };
+        allGwData.forEach(data => {
+            if (data.stats.totalPoints > highestGwRecord.points) {
+                highestGwRecord = {
+                    points: data.stats.totalPoints,
+                    teamName: data.teamId?.name || 'Unknown',
+                    gw: data.gameweek,
+                    logoUrl: data.teamId?.logoUrl
+                };
+            }
+        });
+
+        // 3. حساب السلاسل (Win, Unbeaten, Losing Streaks)
+        const streaks = teams.map(team => {
+            let currentWinStreak = 0, maxWinStreak = 0;
+            let currentUnbeaten = 0, maxUnbeaten = 0;
+            let currentLosing = 0, maxLosing = 0;
+
+            const teamFixtures = fixtures.filter(f => 
+                f.homeTeamId.toString() === team._id.toString() || 
+                f.awayTeamId.toString() === team._id.toString()
+            );
+
+            teamFixtures.forEach(f => {
+                const isHome = f.homeTeamId.toString() === team._id.toString();
+                const myScore = isHome ? f.homeScore : f.awayScore;
+                const oppScore = isHome ? f.awayScore : f.homeScore;
+
+                // سلسلة الانتصارات
+                if (myScore > oppScore) {
+                    currentWinStreak++;
+                    maxWinStreak = Math.max(maxWinStreak, currentWinStreak);
+                } else { currentWinStreak = 0; }
+
+                // سلسلة دون هزيمة
+                if (myScore >= oppScore) {
+                    currentUnbeaten++;
+                    maxUnbeaten = Math.max(maxUnbeaten, currentUnbeaten);
+                } else { currentUnbeaten = 0; }
+
+                // سلسلة الهزائم
+                if (myScore < oppScore) {
+                    currentLosing++;
+                    maxLosing = Math.max(maxLosing, currentLosing);
+                } else { currentLosing = 0; }
+            });
+
+            return { teamName: team.name, logoUrl: team.logoUrl, maxWinStreak, maxUnbeaten, maxLosing };
+        });
+
+        const longestWinStreak = [...streaks].sort((a,b) => b.maxWinStreak - a.maxWinStreak)[0];
+        const longestUnbeaten = [...streaks].sort((a,b) => b.maxUnbeaten - a.maxUnbeaten)[0];
+        const longestLosing = [...streaks].sort((a,b) => b.maxLosing - a.maxLosing)[0];
+
+        // 4. قاعة المشاهير (اللاعبين الأكثر ظهوراً في تشكيلة الأسبوع)
+        const allDreamPlayers = [];
+        // سنحسب تشكيلة الأحلام لكل جولة مرت
+        const currentLeague = await League.findById(leagueId);
+        for (let i = 1; i <= currentLeague.currentGw; i++) {
+            const gwDreamTeam = await calculateDreamTeamForGw(leagueId, i); // دالة مساعدة
+            allDreamPlayers.push(...gwDreamTeam.filter(p => p.isStarter));
+        }
+
+        const hallOfFameMap = {};
+        allDreamPlayers.forEach(p => {
+            if (!hallOfFameMap[p.id]) {
+                hallOfFameMap[p.id] = { name: p.name, count: 0, teamName: p.teamName };
+            }
+            hallOfFameMap[p.id].count++;
+        });
+
+        const hallOfFame = Object.values(hallOfFameMap)
+            .filter(p => p.count > 1)
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 10);
+
+        res.json({
+            bestAttack,
+            highestGwRecord,
+            longestWinStreak,
+            longestUnbeaten,
+            longestLosing,
+            hallOfFame
+        });
+    } catch (error) { res.status(500).json({ message: error.message }); }
+};*/
+
+const getLeagueStatsExtended = async (req, res) => {
+    try {
+        const { leagueId } = req.query;
+        const teams = await Team.find({ leagueId, isApproved: true });
+        
+        // جلب جميع المواجهات المنتهية (هذا الجدول هو المرجع الوحيد للنقاط النهائية بما فيها المستوردة)
+        const fixtures = await Fixture.find({ leagueId, isFinished: true }).sort({ gameweek: 1 });
+
+        // 1. الفريق الأعلى جمعاً للنقاط (أفضل هجوم/إجمالي FPL)
+        const bestAttack = [...teams].sort((a, b) => b.stats.totalFplPoints - a.stats.totalFplPoints)[0];
+
+        // 2. ✅ الحل: الفريق الأعلى في جولة واحدة (من جدول المواجهات لضمان شمول المستورد من إكسل)
+        let highestGwRecord = { points: 0, teamName: '--', gw: 0 };
+        
+        fixtures.forEach(fix => {
+            // فحص نقاط الفريق صاحب الأرض
+            if (fix.homeScore > highestGwRecord.points) {
+                const homeTeam = teams.find(t => t._id.toString() === fix.homeTeamId.toString());
+                highestGwRecord = {
+                    points: fix.homeScore,
+                    teamName: homeTeam ? homeTeam.name : 'Unknown',
+                    gw: fix.gameweek
+                };
+            }
+            // فحص نقاط الفريق الضيف
+            if (fix.awayScore > highestGwRecord.points) {
+                const awayTeam = teams.find(t => t._id.toString() === fix.awayTeamId.toString());
+                highestGwRecord = {
+                    points: fix.awayScore,
+                    teamName: awayTeam ? awayTeam.name : 'Unknown',
+                    gw: fix.gameweek
+                };
+            }
+        });
+
+        // 3. حساب السلاسل (Win, Unbeaten, Losing Streaks)
+        const streaks = teams.map(team => {
+            let currentWinStreak = 0, maxWinStreak = 0;
+            let currentUnbeaten = 0, maxUnbeaten = 0;
+            let currentLosing = 0, maxLosing = 0;
+
+            const teamFixtures = fixtures.filter(f => 
+                f.homeTeamId.toString() === team._id.toString() || 
+                f.awayTeamId.toString() === team._id.toString()
+            );
+
+            teamFixtures.forEach(f => {
+                const isHome = f.homeTeamId.toString() === team._id.toString();
+                const myScore = isHome ? f.homeScore : f.awayScore;
+                const oppScore = isHome ? f.awayScore : f.homeScore;
+
+                // سلسلة الانتصارات
+                if (myScore > oppScore) {
+                    currentWinStreak++;
+                    maxWinStreak = Math.max(maxWinStreak, currentWinStreak);
+                } else { currentWinStreak = 0; }
+
+                // سلسلة دون هزيمة
+                if (myScore >= oppScore) {
+                    currentUnbeaten++;
+                    maxUnbeaten = Math.max(maxUnbeaten, currentUnbeaten);
+                } else { currentUnbeaten = 0; }
+
+                // سلسلة الهزائم
+                if (myScore < oppScore) {
+                    currentLosing++;
+                    maxLosing = Math.max(maxLosing, currentLosing);
+                } else { currentLosing = 0; }
+            });
+
+            return { teamName: team.name, logoUrl: team.logoUrl, maxWinStreak, maxUnbeaten, maxLosing };
+        });
+
+        // 4. قاعة المشاهير
+        const allDreamPlayers = [];
+        const currentLeague = await League.findById(leagueId);
+        for (let i = 1; i <= currentLeague.currentGw; i++) {
+            const gwDreamTeam = await calculateDreamTeamForGw(leagueId, i); 
+            allDreamPlayers.push(...gwDreamTeam.filter(p => p.isStarter));
+        }
+
+        const hallOfFameMap = {};
+        allDreamPlayers.forEach(p => {
+            if (!hallOfFameMap[p.id]) {
+                hallOfFameMap[p.id] = { name: p.name, count: 0, teamName: p.teamName };
+            }
+            hallOfFameMap[p.id].count++;
+        });
+
+        const hallOfFame = Object.values(hallOfFameMap)
+            .filter(p => p.count > 1)
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 10);
+
+        res.json({
+            bestAttack,
+            highestGwRecord,
+            longestWinStreak: [...streaks].sort((a,b) => b.maxWinStreak - a.maxWinStreak)[0],
+            longestUnbeaten: [...streaks].sort((a,b) => b.maxUnbeaten - a.maxUnbeaten)[0],
+            longestLosing: [...streaks].sort((a,b) => b.maxLosing - a.maxLosing)[0],
+            hallOfFame
+        });
+    } catch (error) { res.status(500).json({ message: error.message }); }
+};
+
+// دالة مساعدة لحساب تشكيلة الأحلام لجولة معينة (تستخدم نفس منطقك الأصلي)
+async function calculateDreamTeamForGw(leagueId, gw) {
+    const data = await GameweekData.find({ leagueId, gameweek: gw }).populate('lineup.userId');
+    const playerMap = {};
+    data.forEach(g => {
+        g.lineup.forEach(p => {
+            if (p.userId) {
+                const pId = p.userId._id.toString();
+                if (!playerMap[pId]) playerMap[pId] = { id: pId, name: p.userId.username, score: 0 };
+                playerMap[pId].score += (p.rawPoints - p.transferCost);
+            }
+        });
+    });
+    const sorted = Object.values(playerMap).sort((a,b) => b.score - a.score);
+    // نرجع أعلى 11 لاعب (كمثال مبسط للسرعة)
+    return sorted.slice(0, 11).map(p => ({...p, isStarter: true}));
+}
+
 module.exports = { 
     createLeague, getMyLeague, joinLeague, getLeagueTeams, getLeagueManagers,
     promoteMember, demoteMember, getStandings, getGameweekResults, setLeagueGameweek,
     getLeagueStats, getPlayersStats, syncPlayerHistory, getTeamHistoryFull,
-    getLeagueAwards, getTeamForm, uploadLeagueLogo, syncUserMetaData, getFplSchedule,
-    importPastResults, getAdminAllTeams
+    getLeagueAwards, updateLeagueTactic, getTeamForm, uploadLeagueLogo, syncUserMetaData, getFplSchedule,
+    importPastResults, getAdminAllTeams, getLeagueStatsExtended
 };

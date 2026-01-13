@@ -7,6 +7,19 @@ const leagueSchema = new mongoose.Schema({
   currentGw: { type: Number, default: 1 },
   isActive: { type: Boolean, default: true },
   logoUrl: { type: String, default: '' },
+  dreamTeamTactic: { type: String, default: '433' },
+  
+  // التكتيكات المخصصة للجولات
+	gwTactics: [{
+		gw: Number,
+		tactic: { type: String, default: '433' }
+	}],
+
+// التكتيكات المخصصة للأشهر
+	monthTactics: [{
+		range: String, // مثل "1,4"
+		tactic: { type: String, default: '433' }
+	}],
 
   lastGwWinner: {
     teamId: { type: mongoose.Schema.Types.ObjectId, ref: 'Team' },
