@@ -47,6 +47,11 @@ app.get('/', (req, res) => {
   res.send('API is running correctly...');
 });
 
+// مسار بسيط للتأكد من أن السيرفر يعمل (Ping)
+app.get('/healthcheck', (req, res) => {
+    res.status(200).send('Server is alive!');
+});
+
 const PORT = process.env.PORT || 10000; // Render يفضل 10000
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
