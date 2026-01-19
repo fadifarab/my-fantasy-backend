@@ -264,7 +264,7 @@ const demoteMember = async (req, res) => {
 // 3. الإحصائيات والنتائج
 // ==========================================
 
-const getStandings = async (req, res) => {
+/*const getStandings = async (req, res) => {
     try {
         const user = await User.findById(req.user.id);
         if (!user.leagueId) return res.status(400).json({ message: 'لست منضماً لدوري' });
@@ -298,6 +298,28 @@ const getStandings = async (req, res) => {
         // ملاحظة: يمكنك تفعيل منطق المواجهات المباشرة (H2H) هنا إذا أردت تعقيداً أكبر
         
         res.json(teamsArray);
+    } catch (error) { 
+        res.status(500).json({ message: error.message }); 
+    }
+};*/
+
+const getStandings = async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+        if (!user || !user.leagueId) return res.status(400).json({ message: 'لست منضماً لدوري' });
+
+        // 1. الفرز مباشرة من قاعدة البيانات بناءً على الحقول التي يحدثها المحرك التلقائي
+        // الترتيب: 1- النقاط الكلية (تنازلي) 2- إجمالي نقاط الفانتزي (تنازلي) 3- العقوبات (تصاعدي - الأقل يتصدر)
+        const teams = await Team.find({ leagueId: user.leagueId, isApproved: true })
+            .select('name logoUrl stats penaltyPoints missedDeadlines isDisqualified')
+            .sort({ 
+                "stats.points": -1, 
+                "stats.totalFplPoints": -1, 
+                "penaltyPoints": 1 
+            });
+
+        // 2. إرجاع النتائج مباشرة
+        res.json(teams);
     } catch (error) { 
         res.status(500).json({ message: error.message }); 
     }

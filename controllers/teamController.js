@@ -123,56 +123,69 @@ const selectTeam = async (req, res) => {
 // في teamController.js - تحديث دالة getMyTeam فقط
 const getMyTeam = async (req, res) => {
     try {
-        const { gw } = req.query; 
+        let { gw } = req.query; 
         const user = await User.findById(req.user.id);
         
         if (!user || !user.teamId) {
             return res.status(404).json({ message: 'لم تنضم لفريق بعد' });
         }
 
-        // إضافة populate لـ pendingMembers هنا ⬇️
+        // 🛡️ صمام الأمان: منع خطأ Cast to Number failed for value "NaN"
+        let requestedGw = parseInt(gw);
+        if (isNaN(requestedGw)) {
+            // إذا فشل وصول الرقم، نأتي بالجولة الحالية من الدوري كمرجع احتياطي
+            const league = await League.findById(user.leagueId);
+            requestedGw = league ? league.currentGw : 1;
+        }
+
         const team = await Team.findById(user.teamId)
             .populate('managerId', 'username _id') 
             .populate('members', 'username fplId role _id') 
-            .populate('pendingMembers', 'username fplId role _id email'); // ⬅️ مهم جداً
+            .populate('pendingMembers', 'username fplId role _id email');
 
         if (!team) {
             return res.status(404).json({ message: 'تعذر العثور على بيانات الفريق' });
         }
 
+        const now = new Date();
+        // البحث عن الديدلاين الخاص بالجولة المطلوبة (المصححة)
+        const targetGwDeadline = await Gameweek.findOne({ number: requestedGw });
+        const isDeadlinePassed = targetGwDeadline && now > new Date(targetGwDeadline.deadline_time);
+
         let savedGwData = await GameweekData.findOne({ 
             teamId: user.teamId, 
-            gameweek: gw 
+            gameweek: requestedGw 
         }).populate('lineup.userId', 'username fplId position');
 
         let isInherited = false;
-        if (!savedGwData && parseInt(gw) > 1) {
-            savedGwData = await GameweekData.findOne({ 
+
+        if (!savedGwData) {
+            const lastSaved = await GameweekData.findOne({ 
                 teamId: user.teamId, 
-                gameweek: { $lt: parseInt(gw) } 
+                gameweek: { $lt: requestedGw } 
             }).sort({ gameweek: -1 }).populate('lineup.userId', 'username fplId position');
-            
-            if (savedGwData) isInherited = true;
+
+            if (lastSaved) {
+                savedGwData = lastSaved;
+                isInherited = true; 
+            }
+        } else {
+            isInherited = savedGwData.isInherited || false;
         }
 
-        const gwInfo = await Gameweek.findOne({ number: gw });
-
-        // إرجاع البيانات مع pendingMembers
         res.json({
             ...team._doc,
-            deadline_time: gwInfo ? gwInfo.deadline_time : null,
-            lineup: savedGwData ? savedGwData.lineup : team.members.map(member => ({
-                userId: member,
-                isStarter: false,
-                isCaptain: false
-            })), 
-            activeChip: savedGwData ? savedGwData.activeChip : 'none',
+            deadline_time: targetGwDeadline ? targetGwDeadline.deadline_time : null,
+            isDeadlinePassed: isDeadlinePassed,
+            lineup: savedGwData ? savedGwData.lineup : team.members.map(m => ({ userId: m, isStarter: false, isCaptain: false })), 
+            activeChip: (savedGwData && !isInherited) ? savedGwData.activeChip : 'none',
             isInherited: isInherited,
-            // ⬇️ التأكد من إرجاع pendingMembers
             pendingMembers: team.pendingMembers || []
         });
+
     } catch (error) {
-        console.error("GetMyTeam Error:", error.message);
+        // تسجيل الخطأ مع التفاصيل دون تعطيل السيرفر
+        console.error("GetMyTeam Secure Error:", error.message);
         res.status(500).json({ message: "حدث خطأ أثناء جلب بيانات فريقك" });
     }
 };

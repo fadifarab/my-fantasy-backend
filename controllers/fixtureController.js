@@ -1,6 +1,7 @@
 const Fixture = require('../models/Fixture');
 const Team = require('../models/Team');
 const GameweekData = require('../models/GameweekData');
+const { updateLeagueStandingsInternal } = require('./gameweekController');
 const League = require('../models/League');
 const User = require('../models/User');
 const fs = require('fs');
