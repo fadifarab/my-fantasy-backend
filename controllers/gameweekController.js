@@ -181,15 +181,33 @@ const getTeamGwData = async (req, res) => {
 const getGwStatus = async (req, res) => {
     try {
         const now = new Date();
+        
+        // 1. الجولة القادمة (التي لم يحن موعدها بعد)
         const nextGw = await Gameweek.findOne({ deadline_time: { $gt: now } }).sort({ number: 1 });
+        
+        // 2. الجولة الجارية (التي بدأ وقتها فعلياً)
         const currentGw = await Gameweek.findOne({ deadline_time: { $lte: now } }).sort({ number: -1 });
+
+        // 🚨 المنطق الصحيح لـ isDeadlinePassed:
+        // نتحقق من الجولة "التالية" في جدول الدوري؛ هل انقضى وقتها؟
+        // لكن للتبسيط، سنعتمد على وجود nextGw
+        const isDeadlinePassed = !nextGw; 
+
         res.json({
+            // id هو رقم الجولة التي نلعبها الآن (الجاري حساب نقاطها)
             id: currentGw ? currentGw.number : 1,
-            nextGwId: nextGw ? nextGw.number : (currentGw ? currentGw.number + 1 : 20),
+            
+            // nextGwId هو الرقم الذي سيستخدمه الإشعار (الجولة المطلوب تأكيدها)
+            nextGwId: nextGw ? nextGw.number : (currentGw ? currentGw.number + 1 : 1),
+            
             deadline_time: nextGw ? nextGw.deadline_time : (currentGw ? currentGw.deadline_time : now),
-            isDeadlinePassed: true 
+            
+            // هذا الحقل سيخبر الفرونت إند: "قفل التعديل" أو "افتح التعديل"
+            isDeadlinePassed: isDeadlinePassed 
         });
-    } catch (error) { res.status(500).json({ message: error.message }); }
+    } catch (error) { 
+        res.status(500).json({ message: error.message }); 
+    }
 };
 
 // 🛠 5. المحرك المطور لتحديث الترتيب وحساب البونيس التاريخي آلياً من ملف الإكسل
@@ -460,17 +478,33 @@ const updateLeagueStandingsInternal = async (leagueId) => {
 // 6. الحساب الكامل للجولة الجارية
 
 const calculateScoresInternal = async (leagueId, manualGw = null) => {
+    const now = new Date();
     const league = await League.findById(leagueId);
     if (!league) throw new Error("League not found");
     
+    // --- [1] تحديد الجولة المستهدفة بناءً على الديدلاين ---
+    let targetGw;
+    if (manualGw) {
+        targetGw = manualGw;
+    } else {
+        // البحث عن أحدث جولة انقضى ديدلاينها (هي الجولة الجارية حالياً)
+        const currentGwRecord = await Gameweek.findOne({ deadline_time: { $lte: now } }).sort({ number: -1 });
+        targetGw = currentGwRecord ? currentGwRecord.number : league.currentGw;
+    }
+
+    // تحديث رقم الجولة في الدوري ليطابق الواقع (يضمن تحديث الجداول والواجهات)
+    if (targetGw !== league.currentGw) {
+        await League.findByIdAndUpdate(leagueId, { currentGw: targetGw });
+    }
+
     // تحديث حالة النظام إلى "قيد التشغيل"
     await League.findByIdAndUpdate(leagueId, { autoUpdateStatus: 'running' });
 
-    const targetGw = manualGw || league.currentGw;
     const allTeams = await Team.find({ leagueId, isApproved: true });
 
     // 1. تجميع كل المعرفات الفريدة للمستخدمين المشاركين في هذه الجولة
     const allUserIds = new Set();
+    // جلب كل البيانات المخزنة للجولة المستهدفة
     const allGwDataForTarget = await GameweekData.find({ leagueId, gameweek: targetGw });
     allGwDataForTarget.forEach(gd => {
         gd.lineup.forEach(s => {
@@ -493,7 +527,7 @@ const calculateScoresInternal = async (leagueId, manualGw = null) => {
 
         let gwData = await GameweekData.findOne({ teamId: team._id, gameweek: targetGw });
         
-        // --- [A] منطق النسيان والعقوبات ---
+        // --- [A] منطق النسيان والعقوبات (في حال لم يحفظ المناجير التشكيلة) ---
         if (!gwData) {
             const newMissed = (team.missedDeadlines || 0) + 1;
             let penaltyVal = 0;
@@ -501,7 +535,6 @@ const calculateScoresInternal = async (leagueId, manualGw = null) => {
             else if (newMissed === 3) penaltyVal = 2;
             else if (newMissed >= 4) penaltyVal = 3;
 
-            // تحديث عداد النسيان وعقوبة الترتيب العام في موديل الفريق
             await Team.findByIdAndUpdate(team._id, { 
                 $set: { 
                     missedDeadlines: newMissed, 
@@ -510,10 +543,7 @@ const calculateScoresInternal = async (leagueId, manualGw = null) => {
                 } 
             });
 
-            // إنشاء تشكيلة موروثة (Inherited)
             const last = await GameweekData.findOne({ teamId: team._id, gameweek: { $lt: targetGw } }).sort({ gameweek: -1 });
-            
-            // فلترة التشكيلة الموروثة لضمان وجود الأعضاء الحاليين فقط (منطق التبديل)
             const currentMembersIds = team.members.map(id => id.toString());
             let inheritedLineup = [];
 
@@ -522,7 +552,6 @@ const calculateScoresInternal = async (leagueId, manualGw = null) => {
                     .filter(p => currentMembersIds.includes(p.userId.toString()))
                     .map(p => ({ ...p.toObject(), rawPoints: 0, finalScore: 0 }));
 
-                // إذا نقصت عن 4 لاعبين، أضف العضو الجديد كاحتياط
                 if (inheritedLineup.length < currentMembersIds.length) {
                     const missingId = currentMembersIds.find(id => !inheritedLineup.find(p => p.userId.toString() === id));
                     if (missingId) inheritedLineup.push({ userId: missingId, isStarter: false, isCaptain: false });
@@ -542,7 +571,7 @@ const calculateScoresInternal = async (leagueId, manualGw = null) => {
             });
         }
 
-        // --- [B] جلب النقاط الصافية (Net Points) لترتيب اللاعبين ---
+        // --- [B] حساب النقاط الصافية لكل لاعب ---
         let playersDetailed = gwData.lineup.map(slot => {
             if (!slot.userId) return null;
             const fpl = fplDataMap.get(slot.userId.toString()) || { gwPoints: 0, eventTransfersCost: 0 };
@@ -554,7 +583,7 @@ const calculateScoresInternal = async (leagueId, manualGw = null) => {
             };
         }).filter(p => p !== null);
 
-        // --- [C] تطبيق العقوبة التكتيكية النشطة (تحدث مع كل Ping) ---
+        // --- [C] تطبيق العقوبات التكتيكية وخواص الـ Chips (theBest, freeHit) ---
         if (gwData.isInherited && playersDetailed.length > 0) {
             const sortedByNet = [...playersDetailed].sort((a, b) => b.net - a.net);
             const strongestId = sortedByNet[0].userId;
@@ -562,13 +591,11 @@ const calculateScoresInternal = async (leagueId, manualGw = null) => {
 
             gwData.lineup.forEach(slot => {
                 const sId = slot.userId.toString();
-                // 1. اللاعب الأقل نقاطاً يصبح كابتن (عقوبة مضاعفة الضعف)
-                slot.isCaptain = (sId === weakestId);
-                // 2. اللاعب الأكثر نقاطاً يذهب للدكة (حرمان الفريق من نقاطه)
-                slot.isStarter = (sId !== strongestId);
+                slot.isCaptain = (sId === weakestId); // الأضعف كابتن
+                slot.isStarter = (sId !== strongestId); // الأقوى دكة
             });
         } else {
-            // منطق اختيار الكابتن لخاصية theBest (للمناجير الملتزم فقط)
+            // خاصية theBest
             if (gwData.activeChip === 'theBest') {
                 const starters = playersDetailed.filter(p => 
                     gwData.lineup.find(s => s.userId.toString() === p.userId && s.isStarter)
@@ -578,34 +605,21 @@ const calculateScoresInternal = async (leagueId, manualGw = null) => {
                     gwData.lineup.forEach(s => s.isCaptain = (s.userId.toString() === best.userId));
                 }
             }
-			
-			// 2. 🚨 خاصية الـ Free Hit: التبديل الآلي المستمر 🚨
+            // خاصية Free Hit (التبديل الآلي)
             if (gwData.activeChip === 'freeHit' && playersDetailed.length > 0) {
-                // أولاً: إعادة الجميع لحالتهم الأصلية (اختياري حسب تصميمك، أو نعتمد الحالة الحالية)
-                // ثانياً: تحديد من هو الكابتن حالياً (لأننا لن نلمسه)
                 const captainSlot = gwData.lineup.find(s => s.isCaptain);
                 const captainId = captainSlot ? captainSlot.userId.toString() : null;
-
-                // ثالثاً: ترتيب جميع لاعبي الفريق حسب النقاط (من الأفضل للأقل)
                 const sortedPlayers = [...playersDetailed].sort((a, b) => b.net - a.net);
-
-                // رابعاً: المنطق الجديد
-                // اللاعب الذي ليس كابتن ولديه أقل نقاط هو الذي يجب أن يكون على الدكة
                 const nonCaptainPlayers = sortedPlayers.filter(p => p.userId !== captainId);
-                const candidateForBench = nonCaptainPlayers[nonCaptainPlayers.length - 1]; // الأخير في القائمة (الأقل نقاطاً)
+                const candidateForBench = nonCaptainPlayers[nonCaptainPlayers.length - 1];
 
                 gwData.lineup.forEach(slot => {
-                    if (slot.userId.toString() === candidateForBench.userId) {
-                        slot.isStarter = false; // يوضع على الدكة
-                    } else {
-                        slot.isStarter = true;  // البقية (بمن فيهم الكابتن) أساسيون
-                    }
+                    slot.isStarter = (slot.userId.toString() !== candidateForBench.userId);
                 });
             }
-			
         }
 
-        // --- [D] الحساب النهائي لنقاط الجولة ---
+        // --- [D] الحساب النهائي وتسجيل النقاط ---
         let roundTotal = 0;
         const chip = gwData.activeChip;
 
@@ -614,15 +628,10 @@ const calculateScoresInternal = async (leagueId, manualGw = null) => {
             if (p) {
                 let multiplier = slot.isCaptain ? (chip === 'tripleCaptain' ? 3 : 2) : 1;
                 const final = p.net * multiplier;
-                
                 slot.rawPoints = p.raw;
                 slot.transferCost = p.hits;
                 slot.finalScore = final;
-
-                // تُحسب النقاط إذا كان أساسياً أو إذا استخدم خاصية Bench Boost
-                if (slot.isStarter || chip === 'benchBoost') {
-                    roundTotal += final;
-                }
+                if (slot.isStarter || chip === 'benchBoost') roundTotal += final;
             }
         });
 
@@ -632,7 +641,7 @@ const calculateScoresInternal = async (leagueId, manualGw = null) => {
         await gwData.save();
     }
 
-    // 4. تحديث نتائج المواجهات (Fixtures) بناءً على النقاط الجديدة
+    // 4. تحديث المواجهات والترتيب
     const fixtures = await Fixture.find({ leagueId, gameweek: targetGw });
     for (const fixture of fixtures) {
         const homeData = await GameweekData.findOne({ teamId: fixture.homeTeamId, gameweek: targetGw });
@@ -640,19 +649,17 @@ const calculateScoresInternal = async (leagueId, manualGw = null) => {
         if (homeData && awayData) {
             fixture.homeScore = homeData.stats.totalPoints;
             fixture.awayScore = awayData.stats.totalPoints;
-            fixture.isFinished = true;
+            fixture.isFinished = true; // يتم التحديث باستمرار خلال الجولة
             await fixture.save();
         }
     }
 
-    // 5. تحديث جدول الترتيب العام (يطرح penaltyPoints آلياً من الترتيب العام)
     await updateLeagueStandingsInternal(leagueId);
-
     await League.findByIdAndUpdate(leagueId, { 
         $set: { autoUpdateStatus: 'success', lastAutoUpdate: new Date() } 
     });
 
-    return { success: true, message: `✅ اكتمل حساب الجولة ${targetGw} مع تطبيق العقوبات التكتيكية` };
+    return { success: true, message: `✅ تم التحديث التلقائي للجولة ${targetGw}` };
 };
 /*const calculateScoresInternal = async (leagueId, manualGw = null) => {
     const league = await League.findById(leagueId);

@@ -19,7 +19,7 @@ const normalizeTeamName = (csvName) => {
 };
 
 // 🛠️ دالة داخلية لتحديث جدول الترتيب بالكامل (The Standings Engine)
-const updateLeagueStandingsInternal = async (leagueId) => {
+/*const updateLeagueStandingsInternal = async (leagueId) => {
     const teams = await Team.find({ leagueId, isApproved: true });
     
     for (const team of teams) {
@@ -73,7 +73,7 @@ const updateLeagueStandingsInternal = async (leagueId) => {
     await Promise.all(sortedTeams.map((team, index) => 
         Team.findByIdAndUpdate(team._id, { $set: { 'stats.position': index + 1 } })
     ));
-};
+};*/
 
 // جلب تفاصيل المباراة
 const getMatchDetails = async (req, res) => {
