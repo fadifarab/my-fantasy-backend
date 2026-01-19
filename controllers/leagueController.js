@@ -207,20 +207,42 @@ const getLeagueManagers = async (req, res) => {
 // دالة إدارية بحتة لجلب كافة تفاصيل الفرق والأعضاء
 const getAdminAllTeams = async (req, res) => {
     try {
-        // التأكد من أن المستدعي هو أدمن النظام
+        // 1. التأكد من الصلاحية
         if (req.user.role !== 'admin') {
             return res.status(403).json({ message: 'صلاحية مرفوضة: للمدير فقط' });
         }
 
-        const teams = await Team.find()
-            .populate('managerId', 'username') // جلب بيانات مدير الفريق
+        // 2. جلب الجولة الحالية لمعرفة الجولة القادمة المراد مراقبتها
+        const league = await League.findById(req.user.leagueId);
+        if (!league) return res.status(404).json({ message: 'الدوري غير موجود' });
+        const nextGw = league.currentGw + 1;
+
+        // 3. جلب الفرق مع البيانات الأساسية
+        const teams = await Team.find({ leagueId: league._id })
+            .populate('managerId', 'username')
             .populate({
                 path: 'members',
-                select: 'username fplId totalPoints' // جلب البيانات التفصيلية للأعضاء
+                select: 'username fplId totalPoints'
             });
 
-        res.json(teams);
+        // 4. دمج حالة الالتزام لكل فريق (هل حفظ التشكيلة يدوياً؟)
+        const teamsWithStatus = await Promise.all(teams.map(async (team) => {
+            // نبحث في بيانات الجولات عن الجولة القادمة لهذا الفريق
+            const nextGwData = await GameweekData.findOne({ 
+                teamId: team._id, 
+                gameweek: nextGw 
+            });
+
+            return {
+                ...team._doc,
+                // العلامة الحاسمة: true إذا ضغط حفظ يدوياً، false إذا كانت موروثة أو لم تحفظ بعد
+                isReadyForNextGw: nextGwData ? !nextGwData.isInherited : false
+            };
+        }));
+
+        res.json(teamsWithStatus);
     } catch (error) {
+        console.error("Admin Teams Fetch Error:", error);
         res.status(500).json({ message: "فشل جلب البيانات الإدارية للفرق" });
     }
 };
