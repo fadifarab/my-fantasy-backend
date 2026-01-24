@@ -369,7 +369,7 @@ const rejectPlayer = async (req, res) => {
 
 // @desc    قبول لاعب في الفريق (الحل النهائي لمشكلة الزر)
 // في teamController.js - تحديث دالة approvePlayer لتكون دائماً متاحة
-const approvePlayer = async (req, res) => {
+/*const approvePlayer = async (req, res) => {
     try {
         const { playerId, teamId } = req.body;
         const userId = req.user.id;
@@ -467,6 +467,76 @@ const approvePlayer = async (req, res) => {
             error: error.message 
         });
     }
+};*/
+
+const approvePlayer = async (req, res) => {
+    try {
+        const { playerId, teamId } = req.body;
+        const userId = req.user.id;
+        
+        // 1. التحقق من وجود الفريق
+        const team = await Team.findById(teamId)
+            .populate('managerId', '_id username')
+            .populate('pendingMembers', '_id username');
+        
+        if (!team) {
+            return res.status(404).json({ success: false, message: 'الفريق غير موجود' });
+        }
+        
+        // 2. التحقق من الصلاحيات (مناجير أو أدمن)
+        const isManager = team.managerId._id.toString() === userId.toString();
+        const isAdmin = req.user.role === 'admin';
+        
+        if (!isManager && !isAdmin) {
+            return res.status(403).json({ success: false, message: 'غير مصرح لك' });
+        }
+        
+        // 3. التحقق من السعة (4 لاعبين كحد أقصى)
+        // ✅ هذا هو "القفل" الذي سيفتح بعد عملية الطرد التي برمجناها
+        if (team.members.length >= 4) {
+            return res.status(400).json({ success: false, message: 'عذراً، الفريق مكتمل (الحد الأقصى 4)' });
+        }
+
+        // 4. التحقق من أن اللاعب في قائمة الانتظار
+        const isPending = team.pendingMembers.some(p => p._id.toString() === playerId.toString());
+        if (!isPending) {
+            return res.status(400).json({ success: false, message: 'اللاعب ليس في قائمة الانتظار' });
+        }
+
+        // 5. التحقق من أن اللاعب ليس في فريق آخر
+        const player = await User.findById(playerId);
+        if (player.teamId && player.teamId.toString() !== teamId.toString()) {
+            return res.status(400).json({ success: false, message: 'اللاعب منضم لفريق آخر بالفعل' });
+        }
+        
+        // 6. التنفيذ: تحديث الفريق والمستخدم
+        // نحدث مصفوفة members (هذا يجعله متاحاً للجولات القادمة فقط)
+        await Team.findByIdAndUpdate(teamId, { 
+            $pull: { pendingMembers: playerId },
+            $addToSet: { members: playerId }
+        });
+        
+        await User.findByIdAndUpdate(playerId, { 
+            teamId: teamId,
+            isApproved: true,
+            role: 'player',
+            joinedAt: new Date()
+        });
+
+        // 📝 ملاحظة للمبرمج: 
+        // نحن لم نضف playerId إلى GameweekData للجولة الحالية.
+        // لذا، نقاطه لن تظهر إلا في الجولة القادمة عندما يتم إنشاء سجل جديد أو بالوراثة.
+        
+        res.json({ 
+            success: true, 
+            message: `تم قبول ${player.username} بنجاح. سيتمكن من المشاركة في الجولة القادمة ✅`,
+            teamId,
+            playerId
+        });
+        
+    } catch (error) {
+        res.status(500).json({ success: false, message: "حدث خطأ أثناء قبول اللاعب", error: error.message });
+    }
 };
 
 // =========================================================
@@ -509,7 +579,7 @@ const requestSubstitution = async (req, res) => {
     }
 };
 
-const approveSubstitution = async (req, res) => {
+/*const approveSubstitution = async (req, res) => {
     try {
         const { teamId } = req.body;
         const team = await Team.findById(teamId);
@@ -530,6 +600,49 @@ const approveSubstitution = async (req, res) => {
         res.json({ message: 'تمت الموافقة وحذف اللاعب بنجاح' });
     } catch (error) {
         res.status(500).json({ message: error.message });
+    }
+};*/
+
+const approveSubstitution = async (req, res) => {
+    try {
+        const { teamId } = req.body;
+        
+        // 1. جلب بيانات الفريق والطلب
+        const team = await Team.findById(teamId);
+        if (!team || !team.substitutionRequest) {
+            return res.status(404).json({ message: 'لا يوجد طلب تبديل معلق لهذا الفريق' });
+        }
+
+        const memberIdToRemove = team.substitutionRequest.memberId;
+
+        // 2. تحديث بيانات المستخدم (المطرود)
+        // نسحب منه الـ teamId ونعيد دوره إلى لاعب عادي (player)
+        // لاحظ: لا نحذف الحساب نهائياً للحفاظ على الـ Populate في الجولات السابقة
+        await User.findByIdAndUpdate(memberIdToRemove, { 
+            $unset: { teamId: "" },
+            $set: { role: 'player' } 
+        });
+
+        // 3. تحديث بيانات الفريق
+        // سحب اللاعب من مصفوفة الأعضاء (تصبح 3/4) لفتح مجال للعضو الجديد
+        await Team.findByIdAndUpdate(teamId, {
+            $pull: { members: memberIdToRemove },
+            $set: { hasUsedSubstitution: true },
+            $unset: { substitutionRequest: "" }
+        });
+
+        // ملاحظة برمجية: لم نلمس GameweekData للجولة الحالية 
+        // محرك المزامنة (الـ 5 دقائق) سيستمر في تحديث نقاط memberIdToRemove 
+        // لأنه لا يزال موجوداً في مصفوفة lineup الخاصة بالجولة 20 مثلاً.
+
+        res.json({ 
+            success: true,
+            message: 'تمت الموافقة على التبديل بنجاح. تم فتح خانة شاغرة، وستستمر نقاط العضو المطرود في النزول حتى نهاية الجولة الحالية ✅' 
+        });
+
+    } catch (error) {
+        console.error("Substitution Approval Error:", error);
+        res.status(500).json({ message: "حدث خطأ أثناء معالجة الطلب: " + error.message });
     }
 };
 

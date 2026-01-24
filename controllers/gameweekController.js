@@ -547,7 +547,7 @@ const calculateScoresInternal = async (leagueId, manualGw = null) => {
             const currentMembersIds = team.members.map(id => id.toString());
             let inheritedLineup = [];
 
-            if (last) {
+            /*if (last) {
                 inheritedLineup = last.lineup
                     .filter(p => currentMembersIds.includes(p.userId.toString()))
                     .map(p => ({ ...p.toObject(), rawPoints: 0, finalScore: 0 }));
@@ -569,7 +569,48 @@ const calculateScoresInternal = async (leagueId, manualGw = null) => {
                 activeChip: 'none',
                 stats: { totalPoints: 0, isProcessed: false }
             });
+        }*/
+		
+		if (last) {
+        // فلترة التشكيلة القديمة: نبقي فقط من لا يزال عضواً في الفريق
+        finalLineup = last.lineup
+            .filter(p => currentMembersIds.includes(p.userId.toString()))
+            .map(p => ({ ...p.toObject(), rawPoints: 0, finalScore: 0 }));
+
+        // إذا كان هناك لاعب جديد انضم ولم يوضع في التشكيلة بعد، نضيفه كبديل تلقائياً
+        if (finalLineup.length < currentMembersIds.length) {
+            const missingPlayerId = currentMembersIds.find(id => !finalLineup.find(p => p.userId.toString() === id));
+            if (missingPlayerId) {
+                finalLineup.push({ 
+                    userId: missingPlayerId, 
+                    isStarter: false, 
+                    isCaptain: false, 
+                    rawPoints: 0, 
+                    finalScore: 0 
+                });
+            }
         }
+    } else {
+        // إذا لم توجد تشكيلة سابقة، نعتمد على الأعضاء الحاليين بالكامل
+        finalLineup = team.members.map(m => ({ 
+            userId: m, 
+            isStarter: false, 
+            isCaptain: false, 
+            rawPoints: 0, 
+            finalScore: 0 
+        }));
+    }
+
+    gwData = await GameweekData.create({
+        teamId: team._id,
+        leagueId,
+        gameweek: targetGw,
+        isInherited: true,
+        lineup: finalLineup,
+        activeChip: 'none',
+        stats: { totalPoints: 0, isProcessed: false }
+    });
+}
 
         // --- [B] حساب النقاط الصافية لكل لاعب ---
         let playersDetailed = gwData.lineup.map(slot => {

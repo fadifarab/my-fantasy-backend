@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const leagueController = require('../controllers/leagueController');
-//const { protect } = require('../middleware/authMiddleware');
+const adminController = require('../controllers/adminController'); // 👈 أضف هذا السطر
 const { protect, admin } = require('../middleware/authMiddleware');
 const upload = require('../middleware/uploadMiddleware');
 //const auth = require('../middleware/auth'); 
@@ -20,6 +20,7 @@ router.get('/admin/all-teams', protect, admin, leagueController.getAdminAllTeams
 
 // Stats & Results
 router.get('/standings', protect, leagueController.getStandings);
+//router.get('/standings', leagueController.getStandings);
 router.get('/results/:gw', protect, leagueController.getGameweekResults);
 router.get('/stats', protect, leagueController.getLeagueStats);
 
@@ -46,4 +47,15 @@ router.get('/schedule', protect, leagueController.getFplSchedule);
 router.post('/update-tactic', protect, leagueController.updateLeagueTactic);
 router.get('/extended-stats', protect, leagueController.getLeagueStatsExtended); 
 
+// ==========================================
+// --- روابط المركز الإعلامي (فيسبوك) ---
+// ==========================================
+
+// 1. مسار جلب المعاينة (يستخدم Puppeteer لالتقاط الصورة وإرسالها للفرونت آند)
+router.post('/get-preview', protect, admin, adminController.getPreview);
+
+// 2. مسار النشر النهائي (يرسل الصورة والوصف إلى API فيسبوك)
+router.post('/publish-to-facebook', protect, admin, adminController.publishToFacebook);
+
 module.exports = router;
+ 
