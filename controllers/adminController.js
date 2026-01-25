@@ -33,7 +33,7 @@ async function captureScreenshot(type, gw, userToken) {
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
 		'--single-process',
-		'--no-zygote'
+		'--no-zygote',
         '--window-size=1920,1080'
       ]
     });
