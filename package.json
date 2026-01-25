@@ -4,7 +4,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node server.js",
-	"postinstall": "PUPPETEER_CACHE_PATH=./.puppeteer_cache node node_modules/puppeteer/install.mjs",
+	"postinstall": "puppeteer browsers install chrome",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

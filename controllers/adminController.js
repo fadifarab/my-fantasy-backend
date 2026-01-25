@@ -1,4 +1,5 @@
 const path = require('path');
+const fs = require('fs');
 const puppeteer = require('puppeteer');
 const axios = require('axios');
 const FormData = require('form-data');
@@ -23,28 +24,33 @@ async function captureScreenshot(type, gw, userToken) {
   let browser;
 
   try {
-    console.log(`🚀 بدء عملية الالتقاط لـ ${type} - GW: ${gw}`);
-	
-	const localCachePath = path.join(process.cwd(), '.puppeteer_cache');
-    process.env.PUPPETEER_CACHE_PATH = localCachePath;
+    // 1. تحديد مكان المجلد الذي يضع فيه Render ملفات المشروع
+    const projectRoot = process.cwd(); 
+    // 2. المسار الذي يضع فيه Puppeteer المتصفح افتراضياً في Render
+    const renderCachePath = '/opt/render/.cache/puppeteer';
+    const localCachePath = path.join(projectRoot, '.cache', 'puppeteer');
 
-    // الحصول على المسار التلقائي الذي حدده Puppeteer أثناء الـ Build
-    const autoPath = puppeteer.executablePath();
-    console.log(`📍 محاولة تشغيل المتصفح من: ${autoPath}`);
+    // سنحاول البحث في المكانين، وإذا لم نجد، سنستخدم المسار الذي يطلبه السيرفر
+    let executablePath = puppeteer.executablePath();
+    
+    // فحص إذا كان المتصفح موجوداً في المسار المحلي للمشروع
+    if (fs.existsSync(localCachePath)) {
+        process.env.PUPPETEER_CACHE_PATH = localCachePath;
+        executablePath = puppeteer.executablePath();
+    }
 
-    // 1. إطلاق المتصفح
+    console.log(`📍 الكود يحاول الآن تشغيل المتصفح من: ${executablePath}`);
+
     browser = await puppeteer.launch({
       headless: "new",
-      // نستخدم autoPath الذي تجده المكتبة تلقائياً في مجلد الـ .cache
-      executablePath: autoPath,
+      executablePath: executablePath,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--single-process',
         '--disable-gpu',
-        '--no-zygote',
-        '--window-size=1920,1080'
+        '--no-zygote'
       ]
     });
 
