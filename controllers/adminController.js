@@ -27,10 +27,13 @@ async function captureScreenshot(type, gw, userToken) {
     // 1. إطلاق المتصفح
     browser = await puppeteer.launch({
       headless: "new",
+	  //executablePath: '/usr/bin/google-chrome-stable',
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
+		'--single-process',
+		'--no-zygote'
         '--window-size=1920,1080'
       ]
     });
