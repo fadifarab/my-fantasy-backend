@@ -24,18 +24,22 @@ async function captureScreenshot(type, gw, userToken) {
   try {
     console.log(`🚀 بدء عملية الالتقاط لـ ${type} - GW: ${gw}`);
 
+    // الحصول على المسار التلقائي الذي حدده Puppeteer أثناء الـ Build
+    const autoPath = puppeteer.executablePath();
+    console.log(`📍 محاولة تشغيل المتصفح من: ${autoPath}`);
+
     // 1. إطلاق المتصفح
     browser = await puppeteer.launch({
       headless: "new",
-	  //executablePath: '/usr/bin/google-chrome-stable',
-	  executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || null,
+      // نستخدم autoPath الذي تجده المكتبة تلقائياً في مجلد الـ .cache
+      executablePath: autoPath,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
-		'--single-process',
-		'--disable-gpu',
-		'--no-zygote',
+        '--single-process',
+        '--disable-gpu',
+        '--no-zygote',
         '--window-size=1920,1080'
       ]
     });
