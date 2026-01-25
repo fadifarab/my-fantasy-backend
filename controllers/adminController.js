@@ -28,6 +28,7 @@ async function captureScreenshot(type, gw, userToken) {
     browser = await puppeteer.launch({
       headless: "new",
 	  //executablePath: '/usr/bin/google-chrome-stable',
+	  executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || null,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
