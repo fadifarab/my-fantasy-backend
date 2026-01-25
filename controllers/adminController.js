@@ -1,3 +1,4 @@
+const path = require('path');
 const puppeteer = require('puppeteer');
 const axios = require('axios');
 const FormData = require('form-data');
@@ -24,7 +25,8 @@ async function captureScreenshot(type, gw, userToken) {
   try {
     console.log(`🚀 بدء عملية الالتقاط لـ ${type} - GW: ${gw}`);
 	
-	process.env.PUPPETEER_CACHE_PATH = '/opt/render/project/src/.cache/puppeteer';
+	const localCachePath = path.join(process.cwd(), '.puppeteer_cache');
+    process.env.PUPPETEER_CACHE_PATH = localCachePath;
 
     // الحصول على المسار التلقائي الذي حدده Puppeteer أثناء الـ Build
     const autoPath = puppeteer.executablePath();
