@@ -77,7 +77,7 @@ const normalizeTeamName = (csvName) => {
 };*/
 
 // جلب تفاصيل المباراة
-const getMatchDetails = async (req, res) => {
+/*const getMatchDetails = async (req, res) => {
     try {
         const { fixtureId } = req.params;
         const fixture = await Fixture.findById(fixtureId)
@@ -88,6 +88,56 @@ const getMatchDetails = async (req, res) => {
 
         if (!fixture) return res.status(404).json({ message: 'المباراة غير موجودة' });
 
+        const homeLineup = await GameweekData.findOne({ 
+            teamId: fixture.homeTeamId._id, 
+            gameweek: fixture.gameweek 
+        }).populate('lineup.userId', 'username position fplId');
+
+        const awayLineup = await GameweekData.findOne({ 
+            teamId: fixture.awayTeamId._id, 
+            gameweek: fixture.gameweek 
+        }).populate('lineup.userId', 'username position fplId');
+
+        res.json({ fixture, homeLineup, awayLineup });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};*/
+
+const getMatchDetails = async (req, res) => {
+    try {
+        const { fixtureId } = req.params;
+        
+        // 1. جلب بيانات المباراة
+        const fixture = await Fixture.findById(fixtureId)
+            .populate('homeTeamId', 'name logoUrl managerId leagueId')
+            .populate('awayTeamId', 'name logoUrl managerId leagueId')
+            .populate({ path: 'homeTeamId', populate: { path: 'managerId', select: 'username' }})
+            .populate({ path: 'awayTeamId', populate: { path: 'managerId', select: 'username' }});
+
+        if (!fixture) return res.status(404).json({ message: 'المباراة غير موجودة' });
+
+        // 2. جلب بيانات الدوري للحصول على الجولة الحالية (currentGw)
+        // سنستخدم leagueId الموجود في التشكيلة أو المباراة
+        const league = await League.findById(fixture.leagueId);
+        const currentGW = league ? league.currentGw : 0;
+
+        console.log(`🔍 فحص الوصول: جولة المباراة (${fixture.gameweek}) | الجولة الحالية (${currentGW})`);
+
+        // 3. تطبيق نفس منطق صفحة التاريخ:
+        // إذا كانت جولة المباراة أكبر من الجولة الحالية، نمنع عرض التشكيلة
+        if (fixture.gameweek > currentGW) {
+            return res.status(403).json({ 
+                success: false,
+                message: "المباراة لم تنطلق بعد، لا يمكن عرض التشكيلات حالياً 🔒",
+                fixture, // نرسل بيانات المباراة (النتيجة والفرق) 
+                homeLineup: null, // نحجب التشكيلة تماماً
+                awayLineup: null,
+                isHidden: true 
+            });
+        }
+
+        // 4. إذا كانت الجولة بدأت أو انتهت، نجلب التشكيلات
         const homeLineup = await GameweekData.findOne({ 
             teamId: fixture.homeTeamId._id, 
             gameweek: fixture.gameweek 
