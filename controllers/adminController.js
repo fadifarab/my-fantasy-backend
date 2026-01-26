@@ -20,47 +20,27 @@ const SCREENSHOT_QUALITY = {
 
 // ===================== دالة الالتقاط الرئيسية =====================
 async function captureScreenshot(type, gw, userToken) {
-  const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+  const FRONTEND_URL = process.env.FRONTEND_URL || 'https://fpl-zeddine.vercel.app';
   let browser;
 
   try {
-    // 1. تحديد مكان المجلد الذي يضع فيه Render ملفات المشروع
-    const projectRoot = process.cwd(); 
-    // 2. المسار الذي يضع فيه Puppeteer المتصفح افتراضياً في Render
-    const renderCachePath = '/opt/render/.cache/puppeteer';
-    const localCachePath = path.join(projectRoot, '.cache', 'puppeteer');
+    console.log(`🚀 بدء الاتصال بمتصفح سحابي لـ ${type} - GW: ${gw}`);
 
-    // سنحاول البحث في المكانين، وإذا لم نجد، سنستخدم المسار الذي يطلبه السيرفر
-    let executablePath = puppeteer.executablePath();
+    // 🔥 الحل القاضي: الاتصال بـ Browserless بدلاً من التشغيل المحلي
+    // تأكد من وضع الـ Token الخاص بك في متغيرات البيئة بـ Render باسم BROWSERLESS_TOKEN
+    const browserlessToken = process.env.BROWSERLESS_TOKEN || '2TrS5mYdRmu4pyR91ac97d1ed53b2f26f6822d8f62510b2eb';
     
-    // فحص إذا كان المتصفح موجوداً في المسار المحلي للمشروع
-    if (fs.existsSync(localCachePath)) {
-        process.env.PUPPETEER_CACHE_PATH = localCachePath;
-        executablePath = puppeteer.executablePath();
-    }
-
-    console.log(`📍 الكود يحاول الآن تشغيل المتصفح من: ${executablePath}`);
-
-    browser = await puppeteer.launch({
-      headless: "new",
-      executablePath: executablePath,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--single-process',
-        '--disable-gpu',
-        '--no-zygote'
-      ]
+    browser = await puppeteer.connect({
+      browserWSEndpoint: `wss://chrome.browserless.io?token=${browserlessToken}`,
     });
 
     const page = await browser.newPage();
 
-    // 2. إعدادات الدقة العالية (ScaleFactor 3 لضمان حدة الخطوط الكبيرة)
+    // إعدادات الدقة والجودة
     await page.setViewport({
-      width: 950, 
+      width: 950,
       height: 1000,
-      deviceScaleFactor: 3
+      deviceScaleFactor: 3 // جودة 4K للخطوط
     });
 
     // 3. حقن التوكن في الهيدرز
