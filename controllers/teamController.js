@@ -130,26 +130,19 @@ const getMyTeam = async (req, res) => {
             return res.status(404).json({ message: 'لم تنضم لفريق بعد' });
         }
 
-        // 🛡️ صمام الأمان: منع خطأ Cast to Number failed for value "NaN"
         let requestedGw = parseInt(gw);
+        const league = await League.findById(user.leagueId);
         if (isNaN(requestedGw)) {
-            // إذا فشل وصول الرقم، نأتي بالجولة الحالية من الدوري كمرجع احتياطي
-            const league = await League.findById(user.leagueId);
             requestedGw = league ? league.currentGw : 1;
         }
 
         const team = await Team.findById(user.teamId)
             .populate('managerId', 'username _id') 
-            .populate('members', 'username fplId role _id') 
+            .populate('members', 'username fplId role position _id') // تأكد من وجود position
             .populate('pendingMembers', 'username fplId role _id email');
 
-        if (!team) {
-            return res.status(404).json({ message: 'تعذر العثور على بيانات الفريق' });
-        }
-
-        const now = new Date();
-        // البحث عن الديدلاين الخاص بالجولة المطلوبة (المصححة)
         const targetGwDeadline = await Gameweek.findOne({ number: requestedGw });
+        const now = new Date();
         const isDeadlinePassed = targetGwDeadline && now > new Date(targetGwDeadline.deadline_time);
 
         let savedGwData = await GameweekData.findOne({ 
@@ -157,35 +150,48 @@ const getMyTeam = async (req, res) => {
             gameweek: requestedGw 
         }).populate('lineup.userId', 'username fplId position');
 
+        // --- 🚀 المنطق المصلح 🚀 ---
+        let finalLineup = [];
         let isInherited = false;
 
-        if (!savedGwData) {
-            const lastSaved = await GameweekData.findOne({ 
-                teamId: user.teamId, 
-                gameweek: { $lt: requestedGw } 
-            }).sort({ gameweek: -1 }).populate('lineup.userId', 'username fplId position');
-
-            if (lastSaved) {
-                savedGwData = lastSaved;
-                isInherited = true; 
+        // 1. إذا مر الديدلاين: نعرض ما تم حفظه حصراً (اللاعبين القدامى بنقاطهم)
+        if (isDeadlinePassed) {
+            if (savedGwData) {
+                finalLineup = savedGwData.lineup;
+                isInherited = savedGwData.isInherited || false;
+            } else {
+                // وراثة تاريخية فقط إذا لم يوجد سجل
+                const lastSaved = await GameweekData.findOne({ 
+                    teamId: user.teamId, 
+                    gameweek: { $lt: requestedGw } 
+                }).sort({ gameweek: -1 }).populate('lineup.userId', 'username fplId position');
+                finalLineup = lastSaved ? lastSaved.lineup : [];
+                isInherited = true;
             }
-        } else {
-            isInherited = savedGwData.isInherited || false;
+        } 
+        // 2. إذا لم يمر الديدلاين (وقت اختيار التشكيلة): نعرض أعضاء الفريق الحاليين
+        else {
+            // هنا سيظهر اللاعب الجديد ويختفي القديم لأننا نستخدم team.members
+            finalLineup = team.members.map(m => ({
+                userId: m,
+                isStarter: false,
+                isCaptain: false
+            }));
+            isInherited = false; // نعتبرها اختياراً جديداً بناءً على الأعضاء الحاليين
         }
 
         res.json({
             ...team._doc,
             deadline_time: targetGwDeadline ? targetGwDeadline.deadline_time : null,
             isDeadlinePassed: isDeadlinePassed,
-            lineup: savedGwData ? savedGwData.lineup : team.members.map(m => ({ userId: m, isStarter: false, isCaptain: false })), 
+            lineup: finalLineup, 
             activeChip: (savedGwData && !isInherited) ? savedGwData.activeChip : 'none',
             isInherited: isInherited,
             pendingMembers: team.pendingMembers || []
         });
 
     } catch (error) {
-        // تسجيل الخطأ مع التفاصيل دون تعطيل السيرفر
-        console.error("GetMyTeam Secure Error:", error.message);
+        console.error("GetMyTeam Fix Error:", error.message);
         res.status(500).json({ message: "حدث خطأ أثناء جلب بيانات فريقك" });
     }
 };
