@@ -624,27 +624,18 @@ const calculateScoresInternal = async (leagueId, manualGw = null) => {
             };
         }).filter(p => p !== null);
 
-        // --- [C] تطبيق العقوبات التكتيكية (حل مشكلة تساوي الصافي) ---
-if (gwData.isInherited && playersDetailed.length > 0) {
-    const sortedByNet = [...playersDetailed].sort((a, b) => {
-        // 1. المقارنة بالصافي أولاً (Net Points)
-        if (b.net !== a.net) {
-            return b.net - a.net;
-        }
-        // 2. ⭐ الحل: في حال تساوي الصافي (مثل 37 و 37) ⭐
-        // اللاعب الذي لديه نقاط خام (raw) أعلى يُعتبر "أضعف" تكتيكياً لأنه تسبب في خصم (Hits)
-        return a.raw - b.raw; 
-    });
+        // --- [C] تطبيق العقوبات التكتيكية وخواص الـ Chips (theBest, freeHit) ---
+        if (gwData.isInherited && playersDetailed.length > 0) {
+            const sortedByNet = [...playersDetailed].sort((a, b) => b.net - a.net);
+            const strongestId = sortedByNet[0].userId;
+            const weakestId = sortedByNet[sortedByNet.length - 1].userId;
 
-    const strongestId = sortedByNet[0].userId; // أول لاعب (الأقوى)
-    const weakestId = sortedByNet[sortedByNet.length - 1].userId; // آخر لاعب (الأضعف)
-
-    gwData.lineup.forEach(slot => {
-        const sId = slot.userId.toString();
-        slot.isCaptain = (sId === weakestId); 
-        slot.isStarter = (sId !== strongestId); 
-    });
-} else {
+            gwData.lineup.forEach(slot => {
+                const sId = slot.userId.toString();
+                slot.isCaptain = (sId === weakestId); // الأضعف كابتن
+                slot.isStarter = (sId !== strongestId); // الأقوى دكة
+            });
+        } else {
             // خاصية theBest
             if (gwData.activeChip === 'theBest') {
                 const starters = playersDetailed.filter(p => 
