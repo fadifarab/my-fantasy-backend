@@ -6,7 +6,7 @@ const FormData = require('form-data');
 const MAX_RETRIES = 3;
 
 async function captureScreenshot(type, gw, userToken, teamId = null) {
-  const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+  const FRONTEND_URL = process.env.FRONTEND_URL || 'https://fpl-zeddine.vercel.app';
   let browser;
 
   try {
