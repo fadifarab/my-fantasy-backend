@@ -11,9 +11,18 @@ async function captureScreenshot(type, gw, userToken, teamId = null) {
 
   try {
     browser = await puppeteer.launch({
-      headless: "new",
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--window-size=1920,1080']
-    });
+  headless: "new",
+  executablePath: process.env.CHROME_PATH || null, // مهم جداً للسيرفرات
+  args: [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-gpu', // إضافة هذا السطر
+    '--no-first-run',
+    '--no-zygote',
+    '--single-process', // يقلل استهلاك الذاكرة على السيرفر
+  ]
+});
 
     const page = await browser.newPage();
 
