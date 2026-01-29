@@ -1,33 +1,16 @@
-const path = require('path');
-const fs = require('fs');
 const puppeteer = require('puppeteer');
 const axios = require('axios');
 const FormData = require('form-data');
 
-// 🔧 إعدادات إضافية للتحسين
+// 🔧 إعدادات الجودة والاتصال
 const MAX_RETRIES = 3;
-const WAIT_TIMEOUT = 30000;
-/*const SCREENSHOT_QUALITY = {
-  width: 1200,
-  height: 800,
-  deviceScaleFactor: 2
-};*/
-const SCREENSHOT_QUALITY = {
-  width: 900, // تقليل العرض يجعل الجدول يبدو أضخم في الصورة
-  height: 600, 
-  deviceScaleFactor: 3 // جودة عالية جداً لضمان عدم تشوش الخط الكبير
-};
 
-// ===================== دالة الالتقاط الرئيسية =====================
-async function captureScreenshot(type, gw, userToken) {
+async function captureScreenshot(type, gw, userToken, teamId = null) {
   const FRONTEND_URL = process.env.FRONTEND_URL || 'https://fpl-zeddine.vercel.app';
   let browser;
 
   try {
-    console.log(`🚀 بدء الاتصال بمتصفح سحابي لـ ${type} - GW: ${gw}`);
-
-    // 🔥 الحل القاضي: الاتصال بـ Browserless بدلاً من التشغيل المحلي
-    // تأكد من وضع الـ Token الخاص بك في متغيرات البيئة بـ Render باسم BROWSERLESS_TOKEN
+    // 🔥 الانتقال للاتصال السحابي لضمان العمل على Render
     const browserlessToken = process.env.BROWSERLESS_TOKEN || '2TrS5mYdRmu4pyR91ac97d1ed53b2f26f6822d8f62510b2eb';
     
     browser = await puppeteer.connect({
@@ -36,365 +19,168 @@ async function captureScreenshot(type, gw, userToken) {
 
     const page = await browser.newPage();
 
-    // إعدادات الدقة والجودة
+    // 1. تحديد العرض بناءً على النوع (من كودك المستقر)
+    const isStandings = (type === 'league' || type === 'standings');
+    const viewWidth = isStandings ? 950 : 1400;
+
     await page.setViewport({
-      width: 950,
-      height: 1000,
-      deviceScaleFactor: 3 // جودة 4K للخطوط
+      width: viewWidth,
+      height: 1200,
+      deviceScaleFactor: 3 // جودة عالية جداً
     });
 
-    // 3. حقن التوكن في الهيدرز
+    // ✅ حقن التوكن والمصادقة (طريقتك الناجحة من الكود الثاني)
     if (userToken) {
-      await page.setExtraHTTPHeaders({
-        'Authorization': `Bearer ${userToken}`,
-        'Accept-Language': 'ar,en;q=0.9'
-      });
-    }
-
-    // 4. الانتقال للرئيسية لحقن LocalStorage
-    await page.goto(FRONTEND_URL, { waitUntil: 'networkidle0', timeout: 60000 });
-    if (userToken) {
-      await page.evaluate((token) => {
+      await page.evaluateOnNewDocument((token) => {
+        const userObject = {
+          _id: '6958141eb9878d54b9151bc0',
+          username: 'NEW Ayhem', 
+          role: 'admin',
+          leagueId: '69581438b9878d54b9151be1',
+          teamId: '695823deb446037eeae9113a',
+          token: token
+        };
+        localStorage.setItem('user', JSON.stringify(userObject));
+        localStorage.setItem('token', token);
         localStorage.setItem('userInfo', JSON.stringify({ token, timestamp: Date.now() }));
       }, userToken);
+      
+      await page.setExtraHTTPHeaders({ 'Authorization': `Bearer ${userToken}` });
     }
 
-    // 5. الانتقال للصفحة المستهدفة
-    const targetUrl = `${FRONTEND_URL}/${type}?mode=capture&gw=${gw}`;
-    console.log(`🎯 الانتقال إلى: ${targetUrl}`);
-    await page.goto(targetUrl, { waitUntil: 'networkidle0', timeout: 30000 });
+    // ✅ بناء الرابط الصحيح
+    let targetUrl;
+    if (type === 'lineups' || type === 'formation' || type === 'team-history') {
+      const finalTeamId = teamId || '695823deb446037eeae9113a';
+      targetUrl = `${FRONTEND_URL}/team-history/${finalTeamId}?mode=capture&gw=${gw}`;
+    } else {
+      targetUrl = `${FRONTEND_URL}/${type}?mode=capture&gw=${gw}`;
+    }
 
-    // 6. الانتظار حتى تحميل البيانات
-    console.log("⏳ انتظار تحميل البيانات...");
-    await page.waitForFunction(() => {
-      const rows = document.querySelectorAll('tbody tr');
-      return rows.length > 0 && Array.from(rows).some(row => row.innerText.trim().length > 0);
-    }, { timeout: 20000 });
+    await page.goto(targetUrl, { waitUntil: 'networkidle0', timeout: 60000 });
 
-    // 7. 🔥 التعديل الجوهري لتكبير أسماء الفرق وكل المحتويات
-    await page.evaluate(() => {
+    // ✅ الانتظار لتحميل المحتوى
+    await page.waitForSelector('body', { timeout: 10000 });
+    await new Promise(r => setTimeout(r, 4000)); // وقت كافٍ للأقمصة والملعب
+
+    // 2. تطبيق الأنماط (تنسيقاتك المثالية حرفياً)
+    await page.evaluate((contentType) => {
       const style = document.createElement('style');
-      style.innerHTML = `
-        /* تكبير كل النصوص داخل خلايا الجدول إجبارياً */
-        td, th, td *, th *, span, a, div { 
-          font-size: 28px !important; 
-          font-weight: 800 !important; /* خط عريض جداً للوضوح */
-          line-height: 1.2 !important;
-          font-family: 'Cairo', sans-serif !important; /* تأكد من استخدام خط واضح */
-        }
-        
-        /* زيادة مساحة خلايا الجدول لراحة العين */
-        td { 
-          padding: 15px 8px !important; 
-          vertical-align: middle !important;
-          border-bottom: 1px solid #eee !important;
-        }
-
-        /* تكبير العناوين (اسم الدوري والموسم) */
-        h1, h2, .tournament-title, [class*="title"] { 
-          font-size: 38px !important; 
-          margin-bottom: 15px !important;
-          font-weight: 900 !important;
-          text-align: center !important;
-        }
-
-        /* إجبار الجدول على ملء عرض الصورة */
-        table { 
-          width: 100% !important; 
-          border-collapse: collapse !important; 
-          table-layout: auto !important;
-        }
-        
-        /* تنظيف الحواف وإلغاء المساحات الفارغة الجانبية */
-        body, #capture-area, .container, [class*="container"] { 
-          margin: 0 !important; 
-          padding: 10px !important; 
-          width: 950px !important; 
-          background: white !important;
-        }
-
-        /* إخفاء العناصر المزعجة في الصورة */
-        footer, .no-print, nav, button, .sidebar, [class*="nav"] { 
-          display: none !important; 
-        }
-
-        /* تحسين مظهر الأرقام لتكون واضحة */
-        .points, [class*="score"] {
-          color: #38003c !important; /* لون الفانتزي الرسمي */
-        }
+      let finalCSS = `
+        @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@700;900&display=swap');
+        body { background: white !important; font-family: 'Cairo', sans-serif !important; direction: rtl !important; margin: 0 !important; padding: 20px !important; }
+        nav, footer, .sidebar, button, .no-print, [class*="back-btn"], header, [class*="header"] { display: none !important; }
+        [class*="testConnection"], [class*="info"], [class*="message"], .tournament-header { display: none !important; }
       `;
+
+      if (contentType === 'league' || contentType === 'standings') {
+        finalCSS += `
+          body, .container { width: 950px !important; padding: 10px !important; }
+          td, th, td *, th *, span, a, div { font-size: 28px !important; font-weight: 800 !important; line-height: 1.2 !important; }
+          td { padding: 15px 8px !important; vertical-align: middle !important; border-bottom: 1px solid #eee !important; }
+          h1, h2, .tournament-title, [class*="title"] { font-size: 38px !important; font-weight: 900 !important; text-align: center !important; display: block !important; }
+          table { width: 100% !important; border-collapse: collapse !important; table-layout: auto !important; }
+          .points, [class*="score"] { color: #38003c !important; }
+        `;
+      } else if (contentType === 'fixtures' || contentType === 'matches') {
+        finalCSS += `
+          body { padding: 30px !important; width: 1200px !important; }
+          .fixtures-container, [class*="match"], .match-row { display: flex !important; width: 100% !important; margin-bottom: 15px !important; }
+        `;
+      } else {
+        finalCSS += `
+          body { width: 1400px !important; padding: 40px !important; background: white !important; }
+          .pitch-fade-in, .team-lineup, .formation-container { display: block !important; visibility: visible !important; opacity: 1 !important; }
+          [class*="player-card"], [class*="PlayerCard"] { border: 2px solid #ddd !important; margin: 5px !important; }
+          h1, h2, h3 { color: #38003c !important; text-align: center !important; margin: 20px 0 !important; }
+        `;
+      }
+
+      style.innerHTML = finalCSS;
       document.head.appendChild(style);
-    });
+    }, type);
 
-    // 8. انتظار بسيط ليستقر التصميم بعد تكبير الخطوط
     await new Promise(r => setTimeout(r, 2000));
+    const bodyHeight = await page.evaluate(() => document.documentElement.scrollHeight);
 
-    // 9. حساب الأبعاد الفعلية للمحتوى (لحذف الفراغ السفلي)
-    const bodyHandle = await page.$('body');
-    const boundingBox = await bodyHandle.boundingBox();
-    const finalHeight = Math.ceil(boundingBox.height);
-
-    // 10. ضبط الـ Viewport ليكون على مقاس المحتوى بالضبط
-    await page.setViewport({
-      width: 950,
-      height: finalHeight,
-      deviceScaleFactor: 3
-    });
-
-    // 11. التقاط الصورة مع قص الحواف بدقة
-    console.log('📸 التقاط اللقطة النهائية...');
-    const imageBuffer = await page.screenshot({
+    // التقاط الصورة
+    return await page.screenshot({
       type: 'png',
-      clip: {
-        x: 0,
-        y: 0,
-        width: 950,
-        height: finalHeight
-      }
+      clip: { x: 0, y: 0, width: viewWidth, height: Math.min(bodyHeight, 8000) }
     });
 
-    console.log(`✅ تم الالتقاط بنجاح. الطول: ${finalHeight}px`);
-    return imageBuffer;
-
   } catch (error) {
-    console.error('❌ خطأ في الالتقاط:', error.message);
-    throw new Error(`فشل الالتقاط: ${error.message}`);
+    throw new Error(`فشل الالتقاط السحابي: ${error.message}`);
   } finally {
     if (browser) await browser.close();
   }
 }
 
-// ===================== دالة الالتقاط مع إعادة المحاولة =====================
-async function captureScreenshotWithRetry(type, gw, userToken, retries = MAX_RETRIES) {
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    console.log(`🔄 محاولة الالتقاط ${attempt} من ${retries}`);
-    
+// ✅ دالة التقاط الـ 20 تشكيلة (من كودك الثاني المستقر)
+async function captureAllLineups(gw, userToken) {
+  const allTeamIds = [
+    '69581904b9878d54b915221d', '695823deb446037eeae9113a', '695824f0b446037eeae913c9',
+    '6958295eb446037eeae91851', '69583753dbc855907b69b5ea', '69583b35dbc855907b69ba4e',
+    '6958496b459fd5a748387737', '6958608c785323bdb45785f3', '6958cae28089a1fddabee1b2',
+    '69591a626cb913e5a7b5e53e', '69591cb96cb913e5a7b5e6d2', '695924d5ecd6b3a44a7798e5',
+    '69592edbdc868ecce40f4f24', '695938b5dc868ecce40f55ab', '69596a4acc1cbf7f53e69ab6',
+    '69596ae8cc1cbf7f53e69c03', '6959713dcc1cbf7f53e6a206', '69597baccc1cbf7f53e6b8f8',
+    '69598d20cc1cbf7f53e6cd7c', '69599a52cc1cbf7f53e6ddb6'
+  ];
+  
+  const screenshots = [];
+  for (const teamId of allTeamIds) {
     try {
-      return await captureScreenshot(type, gw, userToken);
-    } catch (error) {
-      console.error(`❌ فشلت المحاولة ${attempt}: ${error.message}`);
-      
-      if (attempt === retries) {
-        throw new Error(`فشلت جميع محاولات الالتقاط: ${error.message}`);
-      }
-      
-      // انتظار تصاعدي قبل المحاولة التالية
-      const waitTime = 2000 * attempt;
-      console.log(`⏳ الانتظار ${waitTime}ms قبل المحاولة التالية...`);
-      await new Promise(r => setTimeout(r, waitTime));
-    }
+      const buffer = await captureScreenshot('lineups', gw, userToken, teamId);
+      screenshots.push(buffer);
+    } catch (e) { console.error(`❌ فشل الفريق ${teamId}: ${e.message}`); }
   }
+  return screenshots;
 }
 
-// ===================== Middleware للتحقق من التوكن =====================
-/*const verifyToken = (req, res, next) => {
-  const token = req.body.token || req.query.token || req.headers['authorization'];
-  
-  if (!token) {
-    return res.status(401).json({ 
-      success: false, 
-      message: "التوكن مطلوب للمصادقة" 
-    });
-  }
-  
-  // يمكن إضافة تحقق إضافي من صحة التوكن هنا
-  const cleanToken = token.replace('Bearer ', '');
-  req.cleanToken = cleanToken;
-  
-  next();
-};*/
-
-// ===================== 1️⃣ دالة جلب المعاينة (Preview) =====================
-exports.getPreview = async (req, res) => {
-  console.log('📱 طلب معاينة جديد');
-  
-  const { type, gw } = req.body;
-  
-  // ✅ التوكن موجود في req.user بسبب middleware protect
-  // احصل على التوكن من المستخدم المصادق عليه
-  const userToken = req.user?.token || req.headers.authorization?.replace('Bearer ', '');
-  
-  // التحقق من البيانات المطلوبة
-  if (!type || !gw) {
-    return res.status(400).json({ 
-      success: false, 
-      message: "بيانات ناقصة: type و gw مطلوبان" 
-    });
-  }
-  
-  try {
-    const startTime = Date.now();
-    
-    // استخدام النسخة مع إعادة المحاولة
-    const imageBuffer = await captureScreenshotWithRetry(type, gw, userToken);
-    const base64Image = imageBuffer.toString('base64');
-    
-    const processingTime = Date.now() - startTime;
-    console.log(`⏱️  وقت المعالجة: ${processingTime}ms`);
-    
-    res.json({ 
-      success: true, 
-      previewImage: `data:image/png;base64,${base64Image}`,
-      processingTime: `${processingTime}ms`,
-      size: `${(base64Image.length * 0.75) / 1024} KB`
-    });
-    
-  } catch (error) {
-    console.error("❌ خطأ في المعاينة:", error.message);
-    res.status(500).json({ 
-      success: false, 
-      message: `فشل في إنشاء المعاينة: ${error.message}` 
-    });
-  }
-};
-
-// ===================== 2️⃣ مُعالج النشر النهائي (Confirm Publish) =====================
+// ✅ دالة النشر (ألبوم + فردي)
 exports.publishToFacebook = async (req, res) => {
-  console.log('📤 طلب نشر إلى فيسبوك');
-  
   const { type, gw, caption } = req.body;
-  
-  // ✅ الحل: استخلاص التوكن من الهيدرز مباشرة مثلما فعلنا في المعاينة
   const userToken = req.headers.authorization?.replace('Bearer ', '') || req.user?.token;
-  
-  const PAGE_ID = process.env.FB_PAGE_ID;
-  const ACCESS_TOKEN = process.env.FB_PAGE_ACCESS_TOKEN;
-
-  // التحقق من البيانات المطلوبة
-  if (!type || !gw || !caption) {
-    return res.status(400).json({ 
-      success: false, 
-      message: "بيانات ناقصة: type و gw و caption مطلوبان" 
-    });
-  }
-
-  if (!PAGE_ID || !ACCESS_TOKEN) {
-    console.error('❌ إعدادات فيسبوك ناقصة');
-    return res.status(500).json({ 
-      success: false, 
-      message: "إعدادات فيسبوك ناقصة، يرجى التحقق من FB_PAGE_ID و FB_PAGE_ACCESS_TOKEN" 
-    });
-  }
+  const FB_URL = `https://graph.facebook.com/v18.0/${process.env.FB_PAGE_ID}`;
 
   try {
-    const startTime = Date.now();
-	
-	const imageBuffer = await captureScreenshotWithRetry(type, gw, userToken);
-    
-    // 1. التقاط لقطة الشاشة
-    //const imageBuffer = await captureScreenshotWithRetry(type, gw, token);
-    console.log(`✅ تم التقاط الصورة (${imageBuffer.length} bytes)`);
-
-    // 2. تحضير البيانات للنشر
-    const formData = new FormData();
-    formData.append('source', imageBuffer, { 
-      filename: `post_${type}_${gw}_${Date.now()}.png`,
-      contentType: 'image/png'
-    });
-    formData.append('message', caption);
-    formData.append('access_token', ACCESS_TOKEN);
-    formData.append('published', 'true');
-
-    // 3. النشر إلى فيسبوك
-    console.log(`📤 جاري النشر إلى صفحة فيسبوك ${PAGE_ID}...`);
-    
-    const fbResponse = await axios.post(
-      `https://graph.facebook.com/v18.0/${PAGE_ID}/photos`,
-      formData,
-      {
-        headers: {
-          ...formData.getHeaders(),
-        },
-        timeout: 60000,
-        maxContentLength: Infinity,
-        maxBodyLength: Infinity
+    if (type === 'lineups') {
+      const allScreenshots = await captureAllLineups(gw, userToken);
+      const mediaIds = [];
+      for (const buffer of allScreenshots) {
+        const formData = new FormData();
+        formData.append('source', buffer, { filename: 'team.png', contentType: 'image/png' });
+        formData.append('published', 'false');
+        formData.append('access_token', process.env.FB_PAGE_ACCESS_TOKEN);
+        const uploadRes = await axios.post(`${FB_URL}/photos`, formData, { headers: formData.getHeaders() });
+        mediaIds.push({ media_fbid: uploadRes.data.id });
       }
-    );
-
-    const processingTime = Date.now() - startTime;
-    console.log(`✅ تم النشر بنجاح! ID: ${fbResponse.data.id}`);
-    console.log(`⏱️  وقت المعالجة الكلي: ${processingTime}ms`);
-
-    res.json({ 
-      success: true, 
-      fbId: fbResponse.data.id,
-      postId: fbResponse.data.post_id,
-      message: "تم النشر إلى فيسبوك بنجاح",
-      processingTime: `${processingTime}ms`,
-      timestamp: new Date().toISOString()
-    });
-    
-  } catch (error) {
-    console.error("❌ خطأ في النشر إلى فيسبوك:", error.message);
-    
-    if (error.response) {
-      console.error('تفاصيل خطأ فيسبوك:', error.response.data);
+      await axios.post(`${FB_URL}/feed`, {
+        message: caption || `🎮 تشكيلات الجولة ${gw}`,
+        attached_media: mediaIds,
+        access_token: process.env.FB_PAGE_ACCESS_TOKEN
+      });
+      return res.json({ success: true, message: "تم نشر ألبوم التشكيلات الـ 20 بنجاح" });
     }
-    
-    const statusCode = error.response?.status || 500;
-    const errorMessage = error.response?.data?.error?.message || error.message;
-    
-    res.status(statusCode).json({ 
-      success: false, 
-      message: `فشل النشر إلى فيسبوك: ${errorMessage}`,
-      details: error.response?.data?.error || null
-    });
-  }
+
+    const imageBuffer = await captureScreenshot(type, gw, userToken);
+    const formData = new FormData();
+    formData.append('source', imageBuffer, { filename: 'post.png', contentType: 'image/png' });
+    formData.append('message', caption);
+    formData.append('access_token', process.env.FB_PAGE_ACCESS_TOKEN);
+    await axios.post(`${FB_URL}/photos`, formData, { headers: formData.getHeaders() });
+    res.json({ success: true, message: "تم النشر بنجاح" });
+  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
 };
 
-// ===================== دالة فحص الصحة (Health Check) =====================
-exports.healthCheck = async (req, res) => {
-  res.json({
-    status: 'healthy',
-    service: 'screenshot-capture-service',
-    version: '1.0.0',
-    timestamp: new Date().toISOString(),
-    features: {
-      preview: true,
-      facebookPublish: true,
-      retryMechanism: true
-    },
-    environment: process.env.NODE_ENV || 'development'
-  });
-};
-
-// ===================== 3️⃣ دالة الاختبار (اختيارية) =====================
-exports.testCapture = async (req, res) => {
-  const { url } = req.query;
-  
-  if (!url) {
-    return res.status(400).json({ 
-      success: false, 
-      message: "يرجى تقديم رابط للاختبار" 
-    });
-  }
-  
-  let browser;
+exports.getPreview = async (req, res) => {
+  const { type, gw, teamId } = req.body;
+  const userToken = req.user?.token || req.headers.authorization?.replace('Bearer ', '');
   try {
-    browser = await puppeteer.launch({ 
-      headless: "new",
-      args: ['--no-sandbox']
-    });
-    const page = await browser.newPage();
-    await page.goto(url, { waitUntil: 'networkidle2' });
-    
-    const screenshot = await page.screenshot({ type: 'png' });
-    const base64Image = screenshot.toString('base64');
-    
-    res.json({
-      success: true,
-      message: "تم الاختبار بنجاح",
-      screenshot: `data:image/png;base64,${base64Image}`,
-      pageTitle: await page.title()
-    });
-  } catch (error) {
-    res.status(500).json({ 
-      success: false, 
-      message: `فشل الاختبار: ${error.message}` 
-    });
-  } finally {
-    if (browser) await browser.close();
-  }
+    const imageBuffer = await captureScreenshot(type, gw, userToken, teamId);
+    res.json({ success: true, previewImage: `data:image/png;base64,${imageBuffer.toString('base64')}` });
+  } catch (error) { res.status(500).json({ success: false, message: error.message }); }
 };
 
 module.exports = exports;
