@@ -121,6 +121,7 @@ const selectTeam = async (req, res) => {
 
 // @desc    جلب بيانات فريق المستخدم الحالي (مع الوراثة والتشكيلات)
 // في teamController.js - تحديث دالة getMyTeam فقط
+// في teamController.js - التحديث النهائي المنقذ لدالة getMyTeam
 const getMyTeam = async (req, res) => {
     try {
         let { gw } = req.query; 
@@ -138,29 +139,32 @@ const getMyTeam = async (req, res) => {
 
         const team = await Team.findById(user.teamId)
             .populate('managerId', 'username _id') 
-            .populate('members', 'username fplId role position _id') // تأكد من وجود position
+            .populate('members', 'username fplId role position _id')
             .populate('pendingMembers', 'username fplId role _id email');
 
         const targetGwDeadline = await Gameweek.findOne({ number: requestedGw });
         const now = new Date();
         const isDeadlinePassed = targetGwDeadline && now > new Date(targetGwDeadline.deadline_time);
 
+        // جلب البيانات المحفوظة للجولة المطلوبة
         let savedGwData = await GameweekData.findOne({ 
             teamId: user.teamId, 
             gameweek: requestedGw 
         }).populate('lineup.userId', 'username fplId position');
 
-        // --- 🚀 المنطق المصلح 🚀 ---
         let finalLineup = [];
         let isInherited = false;
 
-        // 1. إذا مر الديدلاين: نعرض ما تم حفظه حصراً (اللاعبين القدامى بنقاطهم)
+        // ==========================================
+        // 🚀 المنطق المصلح والشامل 🚀
+        // ==========================================
+
         if (isDeadlinePassed) {
+            // 1. بعد الديدلاين: الأولوية المطلقة للمحفوظ أو الوراثة التاريخية
             if (savedGwData) {
                 finalLineup = savedGwData.lineup;
                 isInherited = savedGwData.isInherited || false;
             } else {
-                // وراثة تاريخية فقط إذا لم يوجد سجل
                 const lastSaved = await GameweekData.findOne({ 
                     teamId: user.teamId, 
                     gameweek: { $lt: requestedGw } 
@@ -168,16 +172,21 @@ const getMyTeam = async (req, res) => {
                 finalLineup = lastSaved ? lastSaved.lineup : [];
                 isInherited = true;
             }
-        } 
-        // 2. إذا لم يمر الديدلاين (وقت اختيار التشكيلة): نعرض أعضاء الفريق الحاليين
-        else {
-            // هنا سيظهر اللاعب الجديد ويختفي القديم لأننا نستخدم team.members
-            finalLineup = team.members.map(m => ({
-                userId: m,
-                isStarter: false,
-                isCaptain: false
-            }));
-            isInherited = false; // نعتبرها اختياراً جديداً بناءً على الأعضاء الحاليين
+        } else {
+            // 2. قبل الديدلاين (وقت التعديل):
+            if (savedGwData && savedGwData.lineup && savedGwData.lineup.length > 0) {
+                // ✅ أهم نقطة: إذا المناجير حفظ تشكيلة، نعرضها هي عند العودة
+                finalLineup = savedGwData.lineup;
+                isInherited = false;
+            } else {
+                // إذا لم يحفظ شيئاً بعد، نعرض أعضاء الفريق الحاليين (ليظهر اللاعب الجديد)
+                finalLineup = team.members.map(m => ({
+                    userId: m,
+                    isStarter: false,
+                    isCaptain: false
+                }));
+                isInherited = true; // نعتبرها وراثة من قائمة الأعضاء حتى يتم الحفظ
+            }
         }
 
         res.json({
@@ -191,7 +200,7 @@ const getMyTeam = async (req, res) => {
         });
 
     } catch (error) {
-        console.error("GetMyTeam Fix Error:", error.message);
+        console.error("GetMyTeam Rescue Error:", error.message);
         res.status(500).json({ message: "حدث خطأ أثناء جلب بيانات فريقك" });
     }
 };
