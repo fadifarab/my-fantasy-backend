@@ -532,8 +532,8 @@ const calculateScoresInternal = async (leagueId, manualGw = null) => {
             const newMissed = (team.missedDeadlines || 0) + 1;
             let penaltyVal = 0;
             if (newMissed === 2) penaltyVal = 1;
-            else if (newMissed === 3) penaltyVal = 2;
-            else if (newMissed >= 4) penaltyVal = 3;
+            else if (newMissed === 3) penaltyVal = 3;
+            else if (newMissed >= 4) penaltyVal = 6;
 
             await Team.findByIdAndUpdate(team._id, { 
                 $set: { 
